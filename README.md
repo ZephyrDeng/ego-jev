@@ -37,15 +37,16 @@ npx skills add ZephyrDeng/ego-jev
 
 ## Use
 
-Read [`SKILL.md`](SKILL.md) — it is the entry point your agent loads. The
-decision loop itself is dependency-free Node in
-[`scripts/jev-loop.mjs`](scripts/jev-loop.mjs); options, thresholds, backends
-and latency numbers are in [`reference.md`](reference.md).
+Read [`skills/ego-jev/SKILL.md`](skills/ego-jev/SKILL.md) — it is the entry
+point your agent loads. The decision loop itself is dependency-free Node in
+[`skills/ego-jev/scripts/jev-loop.mjs`](skills/ego-jev/scripts/jev-loop.mjs);
+options, thresholds, backends and latency numbers are in
+[`skills/ego-jev/reference.md`](skills/ego-jev/reference.md).
 
 Offline smoke test (mock decider, no key, runs inside ego-browser):
 
 ```bash
-ego-browser nodejs < scripts/selftest.mjs
+cd skills/ego-jev && ego-browser nodejs < scripts/selftest.mjs
 ```
 
 ## License
