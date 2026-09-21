@@ -1,0 +1,15 @@
+{
+  "name": "ego-jev",
+  "description": "ego-jev — a Jev (TypeSafe System One) inner-loop skill for ego-browser.",
+  "owner": {
+    "name": "ZephyrDeng"
+  },
+  "plugins": [
+    {
+      "name": "ego-jev",
+      "source": "./",
+      "version": "0.2.1",
+      "description": "Jev (TypeSafe System One) inner loop for ego-browser — one ~0.4 s typed decision per DOM step instead of an LLM turn."
+    }
+  ]
+}

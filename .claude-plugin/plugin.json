@@ -1,0 +1,19 @@
+{
+  "name": "ego-jev",
+  "version": "0.2.1",
+  "description": "Jev (TypeSafe System One) inner loop for ego-browser — one ~0.4 s typed decision per DOM step instead of an LLM turn.",
+  "author": {
+    "name": "ZephyrDeng"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/ZephyrDeng/ego-jev",
+  "repository": "https://github.com/ZephyrDeng/ego-jev",
+  "keywords": [
+    "ego-browser",
+    "ego-lite",
+    "jev",
+    "typesafe",
+    "browser-automation",
+    "agent-skills"
+  ]
+}

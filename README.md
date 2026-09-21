@@ -52,6 +52,15 @@ Target questions are speculative: only the selected operation's target can
 execute. Two decisions, **one network round trip**, and each target head
 carries only role-compatible elements.
 
+## Demo
+
+Four Jev decisions on a live form — each step numbers the elements, picks an
+operation and target in one call, then ego executes it:
+
+<img src="docs/demo.gif" alt="ego-jev loop: snapshot, number elements, Jev picks op and target, ego fills and clicks" width="100%" />
+
+([`docs/demo.mp4`](docs/demo.mp4) for a crisper version.)
+
 ## Per step
 
 | | |
@@ -94,6 +103,20 @@ or with the GitHub CLI:
 gh skill install ZephyrDeng/ego-jev
 ```
 
+or as a Claude Code plugin:
+
+```text
+/plugin marketplace add ZephyrDeng/ego-jev
+/plugin install ego-jev@ego-jev
+```
+
+No key yet? The offline selftest drives the loop with a mock decider inside
+ego-browser — same mechanics, nothing to configure:
+
+```bash
+cd skills/ego-jev && ego-browser nodejs < scripts/selftest.mjs
+```
+
 ## Use
 
 Read [`skills/ego-jev/SKILL.md`](skills/ego-jev/SKILL.md) — the entry point
@@ -124,6 +147,12 @@ cd skills/ego-jev && ego-browser nodejs < scripts/selftest.mjs
   System One decision API
 - [ego lite](https://lite.ego.app/) — the Chromium browser for humans and
   agents this skill drives
+
+## Help
+
+- Bugs and feature requests: [Issues](https://github.com/ZephyrDeng/ego-jev/issues)
+- Questions and show-and-tell: [Discussions](https://github.com/ZephyrDeng/ego-jev/discussions)
+- Maintained by [@ZephyrDeng](https://github.com/ZephyrDeng)
 
 ## License
 

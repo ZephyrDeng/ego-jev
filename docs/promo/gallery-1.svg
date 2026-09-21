@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1270" height="760" viewBox="0 0 1270 760">
+<rect width="1270" height="760" fill="#f5f5ed"/>
+<svg x="90" y="150" width="1090" height="373" viewBox="0 0 1400 480">
+<g fill="#252a23" font-family="ui-monospace,SFMono-Regular,Menlo,monospace"><text x="64" y="65" font-size="17" letter-spacing="3">EGO LITE × TYPESAFE</text><text x="60" y="220" font-size="110" font-weight="650" letter-spacing="-7">EGO-JEV</text><text x="63" y="280" font-size="26" letter-spacing="4" fill="#4b7948">SYSTEM ONE INNER LOOP</text><text x="64" y="405" font-size="24" fill="#707969">ONE TYPED CALL PER DOM STEP. ~0.4 S.</text></g>
+<g transform="translate(830 88) rotate(-4 250 150)"><rect x="0" y="0" width="500" height="300" rx="12" fill="#fff" stroke="#263c2a" stroke-width="3"/><path d="M0 40H500" stroke="#263c2a" stroke-width="2"/><circle cx="22" cy="21" r="4" fill="#d9dece"/><circle cx="38" cy="21" r="4" fill="#d9dece"/><circle cx="54" cy="21" r="4" fill="#d9dece"/><text x="76" y="27" font-family="monospace" font-size="16" fill="#87937c">snapshot → systemone → ego</text>
+<rect x="24" y="62" width="452" height="52" rx="5" fill="#f0f3e9"/><rect x="36" y="76" width="40" height="24" rx="4" fill="#d9dece"/><text x="46" y="93" font-family="monospace" font-size="15" fill="#252a23">@2</text><text x="92" y="94" font-family="monospace" font-size="18" fill="#252a23">textbox "Customer name"</text>
+<rect x="24" y="126" width="452" height="52" rx="5" fill="#edf4df" stroke="#4b7948" stroke-width="3"/><rect x="36" y="140" width="40" height="24" rx="4" fill="#4b7948"/><text x="46" y="157" font-family="monospace" font-size="15" fill="#fff">@5</text><text x="92" y="158" font-family="monospace" font-size="18" fill="#252a23">button "Apply filters"</text>
+<rect x="24" y="190" width="452" height="52" rx="5" fill="#f0f3e9"/><rect x="36" y="204" width="40" height="24" rx="4" fill="#d9dece"/><text x="46" y="221" font-family="monospace" font-size="15" fill="#252a23">d1</text><text x="92" y="222" font-family="monospace" font-size="18" fill="#252a23">div "member card G18655"</text>
+<path d="M395 160L407 205L417 189L440 189Z" fill="#ea7345" stroke="#a64424" stroke-width="2"/><path d="M28 264H212M28 282H340" stroke="#d9e1cf" stroke-width="5" stroke-linecap="round"/></g>
+<g fill="none" stroke="#ed784c" stroke-linecap="round"><path d="M755 182H807M726 211H800M743 240H795" stroke-width="6"/></g>
+</svg>
+<text x="635" y="640" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="20" fill="#707969">github.com/ZephyrDeng/ego-jev — MIT, npx skills add ZephyrDeng/ego-jev</text>
+</svg>
