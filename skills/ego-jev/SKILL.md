@@ -3,7 +3,7 @@ name: ego-jev
 description: "Jev (TypeSafe System One) inner loop for ego-browser — one ~0.4 s typed decision per DOM step instead of an LLM turn. Use for multi-step clicking through a semantic page: fill known values into a form, set filters, open a row/card/menu by name, reach a page via nav or site search. Escalates login, payment, free text, canvas and content reading back to you."
 license: MIT
 metadata:
-  version: "0.2.0"
+  version: "0.2.1"
 ---
 
 # ego-jev
@@ -16,6 +16,10 @@ text and never sees a screenshot.
 
 Read `ego-browser` first for TaskSpace and Page rules; this skill only replaces
 the per-step "which element" judgment.
+
+Requires: [ego lite](https://lite.ego.app/) installed and onboarded (provides
+the `ego-browser` command), the `ego-browser` skill, and `TYPESAFE_API_KEY` or
+`AI_GATEWAY_API_KEY` in `~/.config/ego-jev/secrets.env`.
 
 ## Run
 
