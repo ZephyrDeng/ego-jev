@@ -20,6 +20,19 @@ explains what each knob is for.
 | `ask` | auto backend | inject `(state, questions) => answers` for tests/other backends |
 | `apiKey`, `baseUrl`, `gatewayBaseUrl`, `model`, `timeout` | — | backend overrides |
 
+## Timings
+
+Every result carries `result.timings`, on all exit paths:
+
+| field | shape |
+| --- | --- |
+| `timings.totalMs` | wall time of the whole loop |
+| `timings.llmMs` / `timings.llmCalls` | summed Jev latency and one `{seq, step, kind, ms, ok}` per request — `kind` is `decide`, `decide-retry` or `option_retry` |
+| `timings.steps` | per-step `{step, op, snapshotMs, domMs, askMs, actMs, verifyMs, stepMs}` (`askMs` sums that step's calls) |
+
+`formatTimings(result)` (exported from `jev-loop.mjs`) renders a compact
+per-step table with per-call latency — print it for the user after the loop.
+
 ## Backend and keys
 
 `auto` uses direct TypeSafe when `TYPESAFE_API_KEY` resolves, else the Vercel

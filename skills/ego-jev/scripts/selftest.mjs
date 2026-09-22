@@ -10,6 +10,7 @@ const {
   parseSnapshot,
   buildQuestions,
   runJevLoop,
+  formatTimings,
 } = await import(pathToFileURL(resolve(skillDir, "scripts/jev-loop.mjs")).href);
 
 const HTTPBIN_SNAP = `[p1 "httpbin.org/forms/post" | space "jev probe"(12): 1 managed, 0 untracked — p1* "httpbin.org/forms/post"]
@@ -103,6 +104,7 @@ const result = await runJevLoop(page, {
   ask: mockAsk,
 });
 console.log("loop result:", JSON.stringify({ status: result.status, reason: result.reason, steps: result.steps }));
+console.log(formatTimings(result));
 
 // Verify the page actually holds what the loop claims it did.
 const check = await page.evaluate(() => ({

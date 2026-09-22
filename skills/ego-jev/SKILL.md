@@ -3,7 +3,7 @@ name: ego-jev
 description: "Jev (TypeSafe System One) inner loop for ego-browser — one ~0.4 s typed decision per DOM step instead of an LLM turn. Use for multi-step clicking through a semantic page: fill known values into a form, set filters, open a row/card/menu by name, reach a page via nav or site search. Escalates login, payment, free text, canvas and content reading back to you."
 license: MIT
 metadata:
-  version: "0.2.1"
+  version: "0.3.0"
 ---
 
 # ego-jev
@@ -57,7 +57,18 @@ the `ego-browser` command), the `ego-browser` skill, and `TYPESAFE_API_KEY` or
    | `max_steps` | loop bound hit | inspect `result.trace` |
 
    `result.trace` is per-step `{op, ref, name, opConfidence, targetConfidence}`;
-   `result.snapshot` is the last a11y tree.
+   `result.snapshot` is the last a11y tree. `result.timings` records where the
+   time went: `timings.steps` per phase (snapshotMs / domMs / askMs / actMs /
+   verifyMs / stepMs) and `timings.llmCalls`, one entry per System One request
+   (`{seq, step, kind, ms, ok}` — retries and option_retry included). Show the
+   user the latency table once the loop exits:
+
+   ```js
+   const { formatTimings } = await import(
+     `file://${SKILL_DIR}/scripts/jev-loop.mjs`
+   );
+   console.log(formatTimings(result));
+   ```
 
 Done when the page state your goal describes is confirmed by `verify` or your
 own `page.evaluate` — Jev's `done` is a claim, the check is yours.

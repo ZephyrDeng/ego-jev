@@ -412,7 +412,51 @@ export function makeAsk(opts = {}) {
   };
 }
 
-const esc = (reason, extra = {}) => ({ status: "escalate", reason, ...extra });
+const fmtMs = (ms) =>
+  ms == null ? "-" : ms >= 1000 ? `${(ms / 1000).toFixed(2)}s` : `${ms}ms`;
+
+// Render result.timings as a compact per-step table: every Jev/LLM request
+// plus the browser-side phases, so the user sees where each step's time went.
+export function formatTimings(result) {
+  const t = result?.timings;
+  if (!t?.steps?.length) return "jev timings: nothing recorded";
+  const tr = result.trace || [];
+  const clip = (s, n) => {
+    s = String(s);
+    return s.length > n ? s.slice(0, n - 1) + "…" : s;
+  };
+  const rows = t.steps.map((s) => {
+    const e = tr.find((x) => x.step === s.step) || {};
+    return {
+      n: s.step,
+      op: s.op || e.op || "-",
+      target: clip(e.name || (e.target ? String(e.target) : ""), 26),
+      snap: fmtMs(s.snapshotMs),
+      dom: fmtMs(s.domMs),
+      llm: fmtMs(s.askMs),
+      act: fmtMs(s.actMs),
+      total: fmtMs(s.stepMs),
+      _llm: s.askMs || 0,
+    };
+  });
+  const keys = ["n", "op", "target", "snap", "dom", "llm", "act", "total"];
+  const w = keys.map((k) => Math.max(k.length, ...rows.map((r) => String(r[k]).length)));
+  const line = (r) => keys.map((k, i) => String(r[k]).padEnd(w[i])).join("  ").trimEnd();
+  const maxLlm = Math.max(1, ...rows.map((r) => r._llm));
+  const bar = (ms) => "▮".repeat(Math.max(1, Math.round((ms / maxLlm) * 12)));
+  const calls = t.llmCalls
+    .map((c) => `#${c.seq} s${c.step} ${c.kind} ${fmtMs(c.ms)}${c.ok ? "" : " ERR"}`)
+    .join("  ·  ");
+  const avg = t.llmCalls.length ? Math.round(t.llmMs / t.llmCalls.length) : 0;
+  return [
+    `jev timings · ${t.steps.length} steps · ${fmtMs(t.totalMs)} total · llm ${t.llmCalls.length} calls ${fmtMs(t.llmMs)} (avg ${fmtMs(avg)})`,
+    "",
+    "  " + line({ n: "#", op: "op", target: "target", snap: "snap", dom: "dom", llm: "llm", act: "act", total: "step" }),
+    ...rows.map((r) => "  " + line(r) + (r._llm ? "  " + bar(r._llm) : "")),
+    "",
+    `  llm calls: ${calls || "none"}`,
+  ].join("\n");
+}
 
 export async function runJevLoop(page, options = {}) {
   const {
@@ -433,12 +477,48 @@ export async function runJevLoop(page, options = {}) {
   const values = normalizeValues(options.values);
   const history = [];
   const trace = [];
+  const loopStart = performance.now();
+  const llmCalls = []; // every ask() request: {seq, step, kind, ms, ok}
+  const stepTimes = []; // per-step phase breakdown: {step, snapshotMs, domMs, askMs, actMs, verifyMs, stepMs}
+  let callSeq = 0;
+  const timings = () => ({
+    totalMs: Math.round(performance.now() - loopStart),
+    llmMs: llmCalls.reduce((a, c) => a + (c.ms || 0), 0),
+    llmCalls,
+    steps: stepTimes,
+  });
   let lastFingerprint = "";
   let repeats = 0;
   let errors = 0;
   let lastSnapshot = "";
 
   for (let step = 1; step <= maxSteps; step++) {
+    const stepStart = performance.now();
+    const st = { step };
+    stepTimes.push(st);
+    let snapshot = "";
+    let url = "";
+    const finish = (status, reason) => {
+      if (st.stepMs == null) st.stepMs = Math.round(performance.now() - stepStart);
+      return {
+        status, reason, steps: step, trace: keepTrace ? trace : undefined,
+        snapshot, url, timings: timings(),
+      };
+    };
+    const timedAsk = async (s, q, kind = "decide") => {
+      const rec = { seq: ++callSeq, step, kind, ok: false };
+      llmCalls.push(rec);
+      const at = performance.now();
+      try {
+        const answers = await ask(s, q);
+        rec.ok = true;
+        return answers;
+      } finally {
+        rec.ms = Math.round(performance.now() - at);
+        st.askMs = (st.askMs || 0) + rec.ms;
+      }
+    };
+    let phase = performance.now();
     // Candidates = a11y refs + DOM-discovered clickables ("dark matter":
     // div+@click cards, collapsed menuitems, same-origin iframe content that
     // never gets a snapshot ref). Refs keep priority; DOM fills the budget.
@@ -462,16 +542,23 @@ export async function runJevLoop(page, options = {}) {
     };
     // Viewport snapshot first (compact state); empty viewport falls back to
     // full_page so long pages don't dead-end between content blocks.
-    let snapshot = await page.snapshot(snapshotOptions);
+    snapshot = await page.snapshot(snapshotOptions);
+    st.snapshotMs = Math.round(performance.now() - phase);
+    phase = performance.now();
     let { all, candidates } = await collect(snapshot);
+    st.domMs = Math.round(performance.now() - phase);
     if (!candidates.length && snapshotOptions?.scope !== "full_page") {
+      phase = performance.now();
       snapshot = await page.snapshot({ ...snapshotOptions, scope: "full_page" });
+      st.snapshotMs += Math.round(performance.now() - phase);
+      phase = performance.now();
       ({ all, candidates } = await collect(snapshot));
+      st.domMs += Math.round(performance.now() - phase);
       if (candidates.length) history.push("viewport empty; using full_page snapshot");
     }
     candidates = candidates.slice(0, maxElements);
     if (!candidates.length) {
-      return esc("no actionable elements", { steps: step, trace, snapshot });
+      return finish("escalate", "no actionable elements");
     }
 
     // Enrich native selects with option labels so Jev can name the option.
@@ -479,6 +566,7 @@ export async function runJevLoop(page, options = {}) {
       (c) => ["combobox", "listbox"].includes(c.role) && c.css,
     );
     if (selects.length) {
+      phase = performance.now();
       try {
         const lists = await page.evaluate((cssList) =>
           cssList.map((css) => {
@@ -489,9 +577,10 @@ export async function runJevLoop(page, options = {}) {
           }), selects.map((c) => c.css));
         selects.forEach((c, i) => { if (lists[i]?.length) c.options = lists[i]; });
       } catch {}
+      st.domMs += Math.round(performance.now() - phase);
     }
 
-    const url = await page.url().catch(() => "");
+    url = await page.url().catch(() => "");
     const state = {
       goal,
       url,
@@ -505,12 +594,12 @@ export async function runJevLoop(page, options = {}) {
     const questions = buildQuestions(candidates, values);
     let answers;
     try {
-      answers = await ask(state, questions);
+      answers = await timedAsk(state, questions);
     } catch (askErr) {
       // transient backend hiccup (gateway 5xx, timeout): retry once
       await page.waitForTimeout(800).catch(() => {});
       try {
-        answers = await ask(state, questions);
+        answers = await timedAsk(state, questions, "decide-retry");
       } catch (err2) {
         return finish("escalate", `ask backend failed: ${String(err2?.message || err2).slice(0, 120)}`);
       }
@@ -518,18 +607,20 @@ export async function runJevLoop(page, options = {}) {
     const op = answers.op || {};
     const entry = { step, op: op.choice, opConfidence: op.confidence, url };
     trace.push(entry);
-
-    const finish = (status, reason) => ({
-      status, reason, steps: step, trace: keepTrace ? trace : undefined,
-      snapshot, url,
-    });
+    st.op = op.choice;
 
     if (answers.stuck?.noul >= stuckThreshold) return finish("blocked", "jev reports stuck");
     if (op.choice === "done" || op.choice === "escalate" || answers.done?.noul >= doneThreshold) {
       if (op.choice === "escalate") return finish("escalate", "jev escalated");
-      if (verify && !(await verify(page))) {
-        history.push("done check failed verification; continuing");
-        continue;
+      if (verify) {
+        phase = performance.now();
+        const ok = await verify(page);
+        st.verifyMs = Math.round(performance.now() - phase);
+        if (!ok) {
+          history.push("done check failed verification; continuing");
+          st.stepMs = Math.round(performance.now() - stepStart);
+          continue;
+        }
       }
       return { ...finish("done", "goal achieved"), verified: Boolean(verify) };
     }
@@ -554,6 +645,7 @@ export async function runJevLoop(page, options = {}) {
       entry.targetConfidence = tAns.confidence;
       if (!tAns.choice || tAns.choice === "none") {
         history.push(`${act}: no target offered`);
+        st.stepMs = Math.round(performance.now() - stepStart);
         continue;
       }
       if ((tAns.confidence ?? 0) < minTargetConfidence) {
@@ -563,6 +655,7 @@ export async function runJevLoop(page, options = {}) {
       target = all.find((c) => String(c.ref) === String(ref));
       if (!target) {
         history.push(`${act}: target @${ref} not in snapshot`);
+        st.stepMs = Math.round(performance.now() - stepStart);
         continue;
       }
       entry.ref = ref;
@@ -601,6 +694,7 @@ export async function runJevLoop(page, options = {}) {
     lastFingerprint = fingerprint;
     lastSnapshot = snapshot;
 
+    phase = performance.now();
     try {
       const isDom = target?.domIdx != null;
       const sel = isDom ? `loc=css:[${DOM_ATTR}="${target.domIdx}"]` : `@${ref}`;
@@ -629,7 +723,7 @@ export async function runJevLoop(page, options = {}) {
             .map((m) => m[2] || m[1])
             .filter(Boolean);
           if (!opts.length) throw selErr;
-          const a2 = await ask(state, {
+          const a2 = await timedAsk(state, {
             option_retry: {
               type: "choice",
               instructions: `For the dropdown "${target?.name || "select"}", which option serves the user's goal?`,
@@ -660,7 +754,13 @@ export async function runJevLoop(page, options = {}) {
       errors++;
       history.push(`${act} @${ref} failed: ${String(err.message || err).slice(0, 120)}`);
       if (errors >= 2) return finish("escalate", `action errors: ${err.message || err}`);
+    } finally {
+      st.actMs = Math.round(performance.now() - phase);
     }
+    st.stepMs = Math.round(performance.now() - stepStart);
   }
-  return { status: "max_steps", reason: `hit maxSteps=${maxSteps}`, steps: maxSteps, trace };
+  return {
+    status: "max_steps", reason: `hit maxSteps=${maxSteps}`, steps: maxSteps,
+    trace, timings: timings(),
+  };
 }
