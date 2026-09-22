@@ -10,6 +10,7 @@ explains what each knob is for.
 | `goal` | required | the user goal, verbatim |
 | `values` | `{}` | fill/select values: `{key: "v"}` or `{key: {value, hint}}` |
 | `verify` | — | `async (page) => bool`, run when Jev claims done; false → loop continues |
+| `verifyRecheckMs` | 400 | grace wait before re-running a failed `verify` once in the same step — absorbs "done claimed while navigation still commits"; `0` disables |
 | `maxSteps` | 20 | loop bound |
 | `maxElements` | 120 | candidate cap (a11y refs first, DOM `dN` fills the rest) |
 | `snapshotOptions` | viewport | e.g. `{scope:"full_page"}` or `{scope:"subtree", root:"@12"}`; empty viewport auto-falls back to `full_page` |
@@ -19,6 +20,7 @@ explains what each knob is for.
 | `backend` | `"auto"` | `"typesafe"` or `"gateway"` to force one |
 | `ask` | auto backend | inject `(state, questions) => answers` for tests/other backends |
 | `apiKey`, `baseUrl`, `gatewayBaseUrl`, `model`, `timeout` | — | backend overrides |
+| `planner` | env-detected | who drives the loop — pass `"harness/model"` (e.g. `"devin/swe-2-high"`) or `{agent, model}`; defaults to env markers (`AI_AGENT`, `CLAUDECODE`, `CODEX_HOME`, …) which only identify the harness, not its model |
 
 ## Timings
 
@@ -27,8 +29,18 @@ Every result carries `result.timings`, on all exit paths:
 | field | shape |
 | --- | --- |
 | `timings.totalMs` | wall time of the whole loop |
-| `timings.llmMs` / `timings.llmCalls` | summed Jev latency and one `{seq, step, kind, ms, ok}` per request — `kind` is `decide`, `decide-retry` or `option_retry` |
+| `timings.model` | the model(s) that served the calls — the served version (`jev-1.13.0`) when the backend reports it, else the configured alias (`typesafe-ai/jev`, `opts.model`) or `custom` for an injected `ask` |
+| `timings.tokens` | summed `{input, output}` tokens across calls, when the backend reports `usage` |
+| `timings.planner` | the driving agent — `options.planner` verbatim, else the env-detected harness (model unknown unless passed) |
+| `timings.llmMs` / `timings.llmCalls` | summed Jev latency and one `{seq, step, kind, ms, ok, model, backend, usage}` per request — `kind` is `decide`, `decide-retry` or `option_retry` |
 | `timings.steps` | per-step `{step, op, snapshotMs, domMs, askMs, actMs, verifyMs, stepMs}` (`askMs` sums that step's calls) |
+
+Served model and token usage ride back on the answers object under the
+exported `ASK_META` symbol (`{model, usage:{inputTokens, outputTokens}}`); the
+typesafe backend fills it from `body.model`/`body.usage`, the gateway from
+`providerMetadata.gateway.routing.canonicalSlug`/`usage`. `ask.describe()`
+(`{backend, model}`, attached by `makeAsk`) is the fallback for backends that
+report nothing; an injected `ask` may provide the same function.
 
 `formatTimings(result)` (exported from `jev-loop.mjs`) renders a compact
 per-step table with per-call latency — print it for the user after the loop.

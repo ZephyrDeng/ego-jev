@@ -97,6 +97,7 @@ const mockAsk = async (state) => {
   if (step.key) answers.value_key = { choice: step.key, confidence: 0.9 };
   return answers;
 };
+mockAsk.describe = () => ({ backend: "mock", model: "mock-jev" });
 
 const result = await runJevLoop(page, {
   goal: "Fill customer name and email, check the Bacon topping. Do not submit.",
