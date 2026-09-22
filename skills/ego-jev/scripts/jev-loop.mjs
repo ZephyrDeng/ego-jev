@@ -320,6 +320,11 @@ async function resolveKey(envNames, opts = {}) {
   return null;
 }
 
+// Response metadata (served model version, token usage) rides back on the
+// answers object under this symbol — invisible to the decision code, read by
+// the loop's timing recorder.
+export const ASK_META = Symbol("ask-meta");
+
 // Default ask: TypeSafe System One REST. Override via options.ask for tests
 // or other backends. Returns the `answers` object.
 export async function askTypeSafe(state, questions, opts = {}) {
@@ -332,7 +337,18 @@ export async function askTypeSafe(state, questions, opts = {}) {
     signal: AbortSignal.timeout(opts.timeout ?? 15000),
   });
   if (!res.ok) throw new Error(`systemone ${res.status}: ${(await res.text()).slice(0, 300)}`);
-  return (await res.json()).answers;
+  const body = await res.json();
+  const answers = body.answers ?? {};
+  if (body.model || body.usage) {
+    answers[ASK_META] = {
+      model: body.model,
+      usage: body.usage && {
+        inputTokens: body.usage.input_tokens,
+        outputTokens: body.usage.output_tokens,
+      },
+    };
+  }
+  return answers;
 }
 
 // Vercel AI Gateway backend: same Jev model behind the AI SDK evaluation
@@ -367,7 +383,7 @@ export async function askGateway(state, questions, opts = {}) {
   if (!res.ok) throw new Error(`gateway evaluation ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const body = await res.json();
   const conf = body.providerMetadata?.typesafe?.confidence ?? {};
-  return Object.fromEntries(
+  const answers = Object.fromEntries(
     Object.entries(body.answers ?? {}).map(([k, a]) => {
       if (a.type === "boolean") return [k, { type: "noul", noul: a.probability }];
       if (a.type === "choice") {
@@ -382,6 +398,19 @@ export async function askGateway(state, questions, opts = {}) {
       return [k, a];
     }),
   );
+  // The gateway never exposes the resolved Jev version — canonicalSlug is the
+  // closest to a served-model name it reports.
+  const served = body.providerMetadata?.gateway?.routing?.canonicalSlug;
+  if (served || body.usage) {
+    answers[ASK_META] = {
+      model: served,
+      usage: body.usage && {
+        inputTokens: body.usage.inputTokens,
+        outputTokens: body.usage.outputTokens,
+      },
+    };
+  }
+  return answers;
 }
 
 // backend: "typesafe" | "gateway" | "auto" (default). Auto prefers direct
@@ -391,7 +420,7 @@ export async function askGateway(state, questions, opts = {}) {
 // at most once.
 export function makeAsk(opts = {}) {
   let resolved = opts.backend && opts.backend !== "auto" ? opts.backend : null;
-  return async (state, questions) => {
+  const ask = async (state, questions) => {
     if (resolved === "gateway") return askGateway(state, questions, opts);
     if (resolved === "typesafe") return askTypeSafe(state, questions, opts);
     if (!(await resolveKey(["TYPESAFE_API_KEY"], {}))) {
@@ -410,6 +439,33 @@ export function makeAsk(opts = {}) {
       throw err;
     }
   };
+  // Which backend/model served the last call — recorded into timings.llmCalls.
+  ask.describe = () => ({
+    backend: resolved ?? "auto",
+    model:
+      resolved === "gateway"
+        ? opts.model ?? "typesafe-ai/jev"
+        : opts.model ?? "jev-latest",
+  });
+  return ask;
+}
+
+// Which agent harness drives the loop (the planner LLM that calls
+// runJevLoop). Harnesses rarely expose their model name to child processes,
+// so detection covers the harness only — the caller should pass
+// options.planner ("devin/swe-2-high", "claude-code/sonnet-4.5") for the full
+// picture. Env markers observed inside `ego-browser nodejs`.
+function detectPlanner() {
+  const e = process.env;
+  // Orca sets AI_AGENT for whichever harness it launched, e.g.
+  // "devin_3000-11-1_agent" → "devin-3000-11-1". Strongest marker: it names
+  // the launched harness, while the vars below may just be installed binaries.
+  if (e.AI_AGENT) return e.AI_AGENT.replace(/_agent$/, "").replace(/_/g, "-");
+  if (e.CLAUDECODE || e.CLAUDE_CODE_ENTRYPOINT) return "claude-code";
+  if (e.CODEX_HOME || e.CODEX_CI) return "codex";
+  if (e.CURSOR_AGENT) return "cursor-agent";
+  if (e.GEMINI_CLI) return "gemini-cli";
+  return undefined;
 }
 
 const fmtMs = (ms) =>
@@ -435,11 +491,12 @@ export function formatTimings(result) {
       dom: fmtMs(s.domMs),
       llm: fmtMs(s.askMs),
       act: fmtMs(s.actMs),
+      vrf: fmtMs(s.verifyMs),
       total: fmtMs(s.stepMs),
       _llm: s.askMs || 0,
     };
   });
-  const keys = ["n", "op", "target", "snap", "dom", "llm", "act", "total"];
+  const keys = ["n", "op", "target", "snap", "dom", "llm", "act", "vrf", "total"];
   const w = keys.map((k) => Math.max(k.length, ...rows.map((r) => String(r[k]).length)));
   const line = (r) => keys.map((k, i) => String(r[k]).padEnd(w[i])).join("  ").trimEnd();
   const maxLlm = Math.max(1, ...rows.map((r) => r._llm));
@@ -448,10 +505,15 @@ export function formatTimings(result) {
     .map((c) => `#${c.seq} s${c.step} ${c.kind} ${fmtMs(c.ms)}${c.ok ? "" : " ERR"}`)
     .join("  ·  ");
   const avg = t.llmCalls.length ? Math.round(t.llmMs / t.llmCalls.length) : 0;
+  const model = t.model ? ` · ${t.model}` : "";
+  const tok = t.tokens
+    ? ` · ${t.tokens.input >= 1000 ? `${(t.tokens.input / 1000).toFixed(1)}K` : t.tokens.input} tok in`
+    : "";
+  const planner = t.planner ? ` · planner ${t.planner}` : "";
   return [
-    `jev timings · ${t.steps.length} steps · ${fmtMs(t.totalMs)} total · llm ${t.llmCalls.length} calls ${fmtMs(t.llmMs)} (avg ${fmtMs(avg)})`,
+    `jev timings · ${t.steps.length} steps · ${fmtMs(t.totalMs)} total · llm ${t.llmCalls.length} calls ${fmtMs(t.llmMs)} (avg ${fmtMs(avg)})${model}${tok}${planner}`,
     "",
-    "  " + line({ n: "#", op: "op", target: "target", snap: "snap", dom: "dom", llm: "llm", act: "act", total: "step" }),
+    "  " + line({ n: "#", op: "op", target: "target", snap: "snap", dom: "dom", llm: "llm", act: "act", vrf: "vrf", total: "step" }),
     ...rows.map((r) => "  " + line(r) + (r._llm ? "  " + bar(r._llm) : "")),
     "",
     `  llm calls: ${calls || "none"}`,
@@ -470,6 +532,7 @@ export async function runJevLoop(page, options = {}) {
     snapshotOptions,
     ask = makeAsk(options),
     verify,
+    verifyRecheckMs = 400,
     guard = DEFAULT_GUARD,
     keepTrace = true,
   } = options;
@@ -481,12 +544,30 @@ export async function runJevLoop(page, options = {}) {
   const llmCalls = []; // every ask() request: {seq, step, kind, ms, ok}
   const stepTimes = []; // per-step phase breakdown: {step, snapshotMs, domMs, askMs, actMs, verifyMs, stepMs}
   let callSeq = 0;
-  const timings = () => ({
-    totalMs: Math.round(performance.now() - loopStart),
-    llmMs: llmCalls.reduce((a, c) => a + (c.ms || 0), 0),
-    llmCalls,
-    steps: stepTimes,
-  });
+  const planner =
+    typeof options.planner === "object" && options.planner
+      ? [options.planner.agent, options.planner.model].filter(Boolean).join("/")
+      : options.planner ?? detectPlanner();
+  const timings = () => {
+    const tokens = llmCalls.reduce(
+      (a, c) => ({
+        input: a.input + (c.usage?.inputTokens || 0),
+        output: a.output + (c.usage?.outputTokens || 0),
+      }),
+      { input: 0, output: 0 },
+    );
+    return {
+      totalMs: Math.round(performance.now() - loopStart),
+      llmMs: llmCalls.reduce((a, c) => a + (c.ms || 0), 0),
+      model:
+        [...new Set(llmCalls.map((c) => c.model).filter(Boolean))].join(", ") ||
+        undefined,
+      tokens: tokens.input || tokens.output ? tokens : undefined,
+      planner,
+      llmCalls,
+      steps: stepTimes,
+    };
+  };
   let lastFingerprint = "";
   let repeats = 0;
   let errors = 0;
@@ -512,9 +593,16 @@ export async function runJevLoop(page, options = {}) {
       try {
         const answers = await ask(s, q);
         rec.ok = true;
+        // Served model + token usage from the response beat the configured alias.
+        const meta = answers?.[ASK_META];
+        if (meta?.model) rec.model = meta.model;
+        if (meta?.usage) rec.usage = meta.usage;
         return answers;
       } finally {
         rec.ms = Math.round(performance.now() - at);
+        const d = typeof ask.describe === "function" ? ask.describe() : null;
+        rec.model ??= d?.model ?? "custom";
+        if (d?.backend) rec.backend = d.backend;
         st.askMs = (st.askMs || 0) + rec.ms;
       }
     };
@@ -584,8 +672,11 @@ export async function runJevLoop(page, options = {}) {
     const state = {
       goal,
       url,
+      // Clip long labels: Jev latency scales with payload, and tail text of a
+      // 200-char name never changes the decision.
       elements: candidates.map((c) => ({
-        id: c.ref, role: c.role, name: c.name, in: c.context || undefined,
+        id: c.ref, role: c.role, name: c.name?.slice(0, 80),
+        in: c.context?.slice(0, 60) || undefined,
         options: c.options?.slice(0, 8),
       })),
       values: Object.fromEntries(Object.entries(values).map(([k, v]) => [k, v.hint])),
@@ -614,7 +705,13 @@ export async function runJevLoop(page, options = {}) {
       if (op.choice === "escalate") return finish("escalate", "jev escalated");
       if (verify) {
         phase = performance.now();
-        const ok = await verify(page);
+        let ok = await verify(page);
+        // Navigation may still be committing when Jev claims done — recheck
+        // once after a short grace instead of spending another step + call.
+        if (!ok && verifyRecheckMs > 0) {
+          await page.waitForTimeout(verifyRecheckMs).catch(() => {});
+          ok = await verify(page);
+        }
         st.verifyMs = Math.round(performance.now() - phase);
         if (!ok) {
           history.push("done check failed verification; continuing");
@@ -729,7 +826,7 @@ export async function runJevLoop(page, options = {}) {
               instructions: `For the dropdown "${target?.name || "select"}", which option serves the user's goal?`,
               criteria: Object.fromEntries(opts.slice(0, 30).map((l, i) => [l, `option ${i}`])),
             },
-          });
+          }, "option_retry");
           const pick = a2.option_retry?.choice;
           if (!pick || pick === "none") throw selErr;
           value = pick;
