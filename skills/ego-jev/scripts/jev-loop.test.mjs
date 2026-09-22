@@ -3,7 +3,12 @@
 // are mocked, no ego-browser or API key needed. Run: npx vitest run
 
 import { describe, it, expect } from "vitest";
-import { runJevLoop, formatTimings, ASK_META } from "./jev-loop.mjs";
+import {
+  runJevLoop,
+  formatTimings,
+  parseSnapshot,
+  ASK_META,
+} from "./jev-loop.mjs";
 
 const SNAP = `root
   form
@@ -231,6 +236,33 @@ describe("runJevLoop timings", () => {
       "option_retry",
       "decide",
     ]);
+  });
+});
+
+describe("parseSnapshot naming", () => {
+  it("given a table-cell label layout (HN-style form), then unnamed inputs take the preceding cell's text", () => {
+    const snap = `root
+  form
+    table
+      table_row
+        table_cell
+          text "title"
+        table_cell
+          textbox [ref=2, loc=css:input[name="title"]]
+      table_row
+        table_cell
+          text "url"
+        table_cell
+          textbox [ref=3, loc=css:input[name="url"]]
+      table_row
+        table_cell
+          text "text"
+        table_cell
+          textbox [ref=4, loc=css:textarea[name="text"]]`;
+    const byRef = Object.fromEntries(parseSnapshot(snap).map((c) => [c.ref, c]));
+    expect(byRef[2].name).toBe("title");
+    expect(byRef[3].name).toBe("url");
+    expect(byRef[4].name).toBe("text");
   });
 });
 

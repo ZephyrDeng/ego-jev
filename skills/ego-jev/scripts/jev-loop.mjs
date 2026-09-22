@@ -196,6 +196,19 @@ export function parseSnapshot(text) {
           .map((c) => c.name);
         name = sib.join(" ");
       }
+      if (!name && node.parent) {
+        // Label-in-a-preceding-cell layouts (HN-style table forms): take the
+        // nearest earlier-sibling subtree's text, walking up ancestors until
+        // something names this node.
+        let p = node.parent;
+        while (p?.parent && !name) {
+          const sibs = p.parent.children;
+          for (let i = sibs.indexOf(p) - 1; i >= 0 && !name; i--) {
+            name = descendantText(sibs[i]).join(" ");
+          }
+          p = p.parent;
+        }
+      }
       out.push({
         ref: node.ref,
         role: node.role,
