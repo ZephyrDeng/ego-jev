@@ -1,6 +1,164 @@
-// jev-loop.mjs — Jev (TypeSafe System One) decision loop for ego-browser pages.
+// jev-loop.ts — Jev (TypeSafe System One) decision loop for ego-browser pages.
 // Runs inside `ego-browser nodejs` (Node 24, global fetch) or any modern Node.
 // No dependencies; `page` is an ego-browser Page object.
+
+import { normalizeRecord, createRecorder } from "./record.ts";
+import type { RecordOptions, RecordResult } from "./record.ts";
+import type { Page, SnapshotOptions } from "./types.ts";
+export { formatRecord } from "./record.ts";
+export type { RecordOptions, RecordResult } from "./record.ts";
+export type { Page, SnapshotOptions, CdpEvent } from "./types.ts";
+
+export interface Candidate {
+  ref: number | string;
+  role: string;
+  name: string;
+  context: string;
+  css?: string | null;
+  actionable: boolean;
+  options?: string[];
+  domIdx?: number;
+  xy?: { x: number; y: number };
+}
+
+export interface DomItem {
+  idx: number;
+  tag: string;
+  role: string;
+  name: string;
+  xy?: { x: number; y: number };
+}
+
+interface SnapNode {
+  indent: number;
+  role: string;
+  name: string;
+  ref: number | null;
+  css: string | null;
+  children: SnapNode[];
+  parent: SnapNode | null;
+}
+
+export type ValueInput = string | { value: string; hint?: string };
+export type Values = Record<string, { value: string; hint: string }>;
+
+export interface Question {
+  type: "choice" | "noul" | "boolean" | "score";
+  instructions: string;
+  criteria?: Record<string, string>;
+}
+export type Questions = Record<string, Question>;
+
+export interface Answer {
+  type?: string;
+  choice?: string;
+  confidence?: number;
+  noul?: number;
+  score?: number;
+  probabilities?: Record<string, number>;
+}
+export interface AskMeta {
+  model?: string;
+  usage?: { inputTokens?: number; outputTokens?: number };
+}
+export type Answers = Record<string, Answer> & { [ASK_META]?: AskMeta };
+
+export interface JevState {
+  goal: string;
+  url: string;
+  elements: { id: number | string; role: string; name?: string; in?: string; options?: string[] }[];
+  values: Record<string, string>;
+  history: string[];
+}
+
+export type Ask = ((state: JevState, questions: Questions) => Promise<Answers>) & {
+  describe?: () => { backend: string; model: string };
+};
+
+export interface BackendOptions {
+  backend?: "auto" | "typesafe" | "gateway";
+  apiKey?: string;
+  baseUrl?: string;
+  gatewayBaseUrl?: string;
+  model?: string;
+  timeout?: number;
+}
+
+export interface RunOptions extends BackendOptions {
+  goal: string;
+  values?: Record<string, ValueInput>;
+  maxSteps?: number;
+  maxElements?: number;
+  minOpConfidence?: number;
+  minTargetConfidence?: number;
+  doneThreshold?: number;
+  stuckThreshold?: number;
+  snapshotOptions?: SnapshotOptions;
+  ask?: Ask;
+  verify?: (page: Page) => Promise<boolean> | boolean;
+  verifyRecheckMs?: number;
+  guard?: RegExp | null;
+  keepTrace?: boolean;
+  record?: boolean | RecordOptions;
+  planner?: string | { agent?: string; model?: string };
+}
+
+export interface TraceEntry {
+  step: number;
+  op?: string;
+  opConfidence?: number;
+  url: string;
+  target?: string;
+  targetConfidence?: number;
+  ref?: number | string;
+  name?: string;
+  valueKey?: string;
+  retried?: string;
+}
+
+export interface LlmCall {
+  seq: number;
+  step: number;
+  kind: "decide" | "decide-retry" | "option_retry";
+  ok: boolean;
+  ms?: number;
+  model?: string;
+  backend?: string;
+  usage?: AskMeta["usage"];
+}
+
+export interface StepTiming {
+  step: number;
+  op?: string;
+  snapshotMs?: number;
+  domMs?: number;
+  askMs?: number;
+  actMs?: number;
+  verifyMs?: number;
+  stepMs?: number;
+}
+
+export interface Timings {
+  totalMs: number;
+  llmMs: number;
+  model?: string;
+  tokens?: { input: number; output: number };
+  planner?: string;
+  llmCalls: LlmCall[];
+  steps: StepTiming[];
+}
+
+export interface RunResult {
+  status: "done" | "escalate" | "blocked" | "max_steps";
+  reason: string;
+  steps: number;
+  trace?: TraceEntry[];
+  snapshot?: string;
+  url?: string;
+  timings: Timings;
+  record?: RecordResult;
+  verified?: boolean;
+}
 
 const NODE_RE = /^(\s*)([A-Za-z][\w-]*)(?:\s+"((?:[^"\\]|\\.)*)")?\s*(?:\[(.+)\])?\s*$/;
 
@@ -36,11 +194,13 @@ const INSTRUCTIONS = {
   stuck: "The task is stuck: the same actions keep repeating, a captcha or dead end blocks progress, or no supported operation can advance the goal.",
 };
 
-function unquote(s) {
+function unquote(s: string) {
   return s.replace(/\\(.)/g, "$1");
 }
 
 const DOM_ATTR = "data-ego-jev";
+
+const errMsg = (e: unknown) => String((e as Error)?.message || e);
 
 // DOM "dark matter" collection: clickable elements the a11y snapshot does not
 // expose with a ref — div+@click, cursor:pointer, menuitem in collapsed menus,
@@ -50,9 +210,9 @@ const DOM_ATTR = "data-ego-jev";
 // Top-document elements are tagged with data-ego-jev for loc=css clicks;
 // iframe-internal elements carry viewport-absolute coordinates instead and are
 // clicked via page.mouse.
-export async function collectDomInteractives(page, snapshotCss = [], max = 40) {
+export async function collectDomInteractives(page: Page, snapshotCss: string[] = [], max = 40): Promise<DomItem[]> {
   return page.evaluate(
-    ({ attr, selectors, max }) => {
+    ({ attr, selectors, max }: { attr: string; selectors: string[]; max: number }) => {
       const TAGS = new Set([
         "A", "BUTTON", "INPUT", "SELECT", "TEXTAREA", "SUMMARY", "OPTION",
         "DETAILS",
@@ -63,19 +223,20 @@ export async function collectDomInteractives(page, snapshotCss = [], max = 40) {
         "listbox", "textbox", "searchbox", "slider", "spinbutton", "row",
         "cell", "gridcell",
       ]);
-      const matchesSnapshot = (el) =>
+      const matchesSnapshot = (el: Element) =>
         selectors.some((s) => { try { return el.matches(s); } catch { return false; } });
-      const ancestors = (el) => {
-        const out = [];
-        let n = el.parentElement || el.getRootNode?.().host;
-        while (n) { out.push(n); n = n.parentElement || n.getRootNode?.().host; }
+      const hostOf = (n: Element) => (n.getRootNode?.() as ShadowRoot | undefined)?.host;
+      const ancestors = (el: Element) => {
+        const out: Element[] = [];
+        let n: Element | null | undefined = el.parentElement || hostOf(el);
+        while (n) { out.push(n); n = n.parentElement || hostOf(n); }
         return out;
       };
-      const nameOf = (el) => {
+      const nameOf = (el: HTMLElement) => {
         const t =
           el.getAttribute("aria-label") || el.getAttribute("title") ||
           el.getAttribute("placeholder") || el.getAttribute("alt") ||
-          el.querySelector?.("img[alt]")?.alt;
+          el.querySelector?.<HTMLImageElement>("img[alt]")?.alt;
         if (t?.trim()) return t.trim().slice(0, 80);
         const txt = (el.innerText || "").replace(/\s+/g, " ").trim();
         if (txt) return txt.slice(0, 80);
@@ -83,7 +244,7 @@ export async function collectDomInteractives(page, snapshotCss = [], max = 40) {
         const cls = String(el.className || "").split(/\s+/).filter(Boolean).slice(0, 2).join(".");
         return `${el.tagName.toLowerCase()}${id}${cls ? "." + cls : ""}`;
       };
-      const isInteractive = (el) => {
+      const isInteractive = (el: HTMLElement) => {
         if (TAGS.has(el.tagName)) return true;
         const role = el.getAttribute("role");
         if (role && ROLES.has(role)) return true;
@@ -93,7 +254,7 @@ export async function collectDomInteractives(page, snapshotCss = [], max = 40) {
         if (ti != null && +ti >= 0) return true;
         return getComputedStyle(el).cursor === "pointer";
       };
-      const visRect = (el) => {
+      const visRect = (el: Element) => {
         const r = el.getBoundingClientRect();
         if (r.width < 2 || r.height < 2) return null;
         const cs = getComputedStyle(el);
@@ -102,15 +263,15 @@ export async function collectDomInteractives(page, snapshotCss = [], max = 40) {
         return r;
       };
       const collected = new Set();
-      const out = [];
-      const walk = (doc, ox, oy, inFrame, frameH) => {
+      const out: DomItem[] = [];
+      const walk = (doc: Document | ShadowRoot, ox: number, oy: number, inFrame: boolean, frameH: number): void => {
         doc.querySelectorAll(`[${attr}]`).forEach((e) => e.removeAttribute(attr));
-        for (const el of doc.querySelectorAll("*")) {
+        for (const el of doc.querySelectorAll<HTMLElement>("*")) {
           if (out.length >= max) return;
           if (el.shadowRoot) walk(el.shadowRoot, ox, oy, inFrame, frameH);
           if (el.tagName === "IFRAME") {
-            let cd = null;
-            try { cd = el.contentDocument; } catch {}
+            let cd: Document | null = null;
+            try { cd = (el as HTMLIFrameElement).contentDocument; } catch {}
             if (cd) {
               const fr = visRect(el);
               if (fr) walk(cd, ox + fr.x, oy + fr.y, true, fr.height);
@@ -127,7 +288,7 @@ export async function collectDomInteractives(page, snapshotCss = [], max = 40) {
           if (matchesSnapshot(el)) continue; // already an a11y ref candidate
           const name = nameOf(el);
           if (name === el.tagName.toLowerCase()) continue; // bare tag: zero signal for Jev
-          const item = {
+          const item: DomItem = {
             idx: out.length,
             tag: el.tagName.toLowerCase(),
             role: el.getAttribute("role") || "",
@@ -148,9 +309,9 @@ export async function collectDomInteractives(page, snapshotCss = [], max = 40) {
 
 // Parse an ego-browser snapshot into a candidate list.
 // Returns [{ ref, role, name, context, actionable }].
-export function parseSnapshot(text) {
+export function parseSnapshot(text: string): (Omit<Candidate, "ref"> & { ref: number })[] {
   const lines = String(text).split("\n");
-  const root = { indent: -1, role: "root", children: [], parent: null };
+  const root: SnapNode = { indent: -1, role: "root", name: "", ref: null, css: null, children: [], parent: null };
   const stack = [root];
 
   for (const raw of lines) {
@@ -158,31 +319,31 @@ export function parseSnapshot(text) {
     const m = raw.match(NODE_RE);
     if (!m) continue;
     const [, ws, role, quoted, bracket] = m;
-    const node = {
+    const node: SnapNode = {
       indent: ws.length,
       role,
       name: quoted ? unquote(quoted) : "",
       ref: bracket ? Number(bracket.match(/ref=(\d+)/)?.[1]) || null : null,
       css: bracket
         ? bracket.match(/loc=css:(.+?)(?:,\s*url=|$)/)?.[1] ||
-          (bracket.match(/loc=href:([^,\]]+)/)?.[1] ? `a[href="${bracket.match(/loc=href:([^,\]]+)/)[1]}"]` : null)
+          (bracket.match(/loc=href:([^,\]]+)/)?.[1] ? `a[href="${bracket.match(/loc=href:([^,\]]+)/)![1]}"]` : null)
         : null,
       children: [],
       parent: null,
     };
     while (stack.length > 1 && stack[stack.length - 1].indent >= node.indent) stack.pop();
-    node.parent = stack[stack.length - 1];
+    node.parent = stack[stack.length - 1]!;
     node.parent.children.push(node);
     stack.push(node);
   }
 
-  const descendantText = (node) =>
+  const descendantText = (node: SnapNode): string[] =>
     node.children.flatMap((c) =>
       c.role === "text" && c.name ? [c.name] : descendantText(c),
     );
 
-  const out = [];
-  const visit = (node, ancestorLabels) => {
+  const out: (Omit<Candidate, "ref"> & { ref: number })[] = [];
+  const visit = (node: SnapNode, ancestorLabels: string[]): void => {
     let labels = ancestorLabels;
     if (["group", "form", "region", "list", "table", "navigation", "iframe"].includes(node.role)) {
       const t = node.name || descendantText(node)[0];
@@ -226,7 +387,7 @@ export function parseSnapshot(text) {
   return out;
 }
 
-function elementLine(c) {
+function elementLine(c: Pick<Candidate, "role" | "name" | "context" | "options">) {
   const ctx = c.context ? ` — in "${c.context}"` : "";
   const opts = c.options?.length
     ? ` options=[${c.options.slice(0, 8).join("|")}${c.options.length > 8 ? `|+${c.options.length - 8}` : ""}]`
@@ -234,7 +395,7 @@ function elementLine(c) {
   return `${c.role}${c.name ? ` "${c.name}"` : ""}${ctx}${opts}`;
 }
 
-export function buildQuestions(candidates, values) {
+export function buildQuestions(candidates: Candidate[], values: Values): Questions {
   const targetable = candidates.filter((c) => c.actionable);
   const elCriteria = Object.fromEntries(
     targetable.map((c) => [String(c.ref), elementLine(c)]),
@@ -243,7 +404,7 @@ export function buildQuestions(candidates, values) {
   // Per-op heads (jev-ultrafast style): Jev latency scales with payload, and
   // repeating 120 elements in every head doubled it. Fall back to the full
   // list when the role filter finds nothing so odd widgets still get offered.
-  const headFor = (re) => {
+  const headFor = (re: RegExp) => {
     const sub = targetable.filter((c) => re.test(c.role));
     if (!sub.length) return elCriteria;
     const o = Object.fromEntries(sub.map((c) => [String(c.ref), elementLine(c)]));
@@ -258,7 +419,7 @@ export function buildQuestions(candidates, values) {
   );
   scrollCriteria.page = "scroll the whole window down to reveal more content";
 
-  const questions = {
+  const questions: Questions = {
     op: { type: "choice", instructions: INSTRUCTIONS.op, criteria: OPS },
     target_click: { type: "choice", instructions: INSTRUCTIONS.target_click, criteria: elCriteria },
     target_fill: { type: "choice", instructions: INSTRUCTIONS.target_fill, criteria: fillCriteria },
@@ -284,16 +445,16 @@ export function buildQuestions(candidates, values) {
   if (sw.length === 1) {
     questions.option_pick = {
       type: "choice",
-      instructions: `If the next operation is select on "${sw[0].name || "the dropdown"}", which option serves the user's goal?`,
+      instructions: `If the next operation is select on "${sw[0]!.name || "the dropdown"}", which option serves the user's goal?`,
       criteria: Object.fromEntries(
-        sw[0].options.slice(0, 30).map((l, i) => [l || String(i), `option ${i}`]),
+        sw[0]!.options!.slice(0, 30).map((l, i) => [l || String(i), `option ${i}`]),
       ),
     };
   }
   return questions;
 }
 
-function normalizeValues(values) {
+function normalizeValues(values?: Record<string, ValueInput>): Values {
   return Object.fromEntries(
     Object.entries(values || {}).map(([k, v]) => [
       k,
@@ -306,7 +467,7 @@ function normalizeValues(values) {
 // calling shell's env. Key resolution order: opts.apiKey, process.env,
 // ~/.config/ego-jev/secrets.env, then `export NAME=value` lines in
 // ~/.zshenv / ~/.zshrc.
-async function resolveKey(envNames, opts = {}) {
+async function resolveKey(envNames: string[], opts: { apiKey?: string } = {}): Promise<string | null> {
   if (opts.apiKey) return opts.apiKey;
   for (const n of envNames) if (process.env[n]) return process.env[n];
   const fs = await import("node:fs/promises");
@@ -340,7 +501,7 @@ export const ASK_META = Symbol("ask-meta");
 
 // Default ask: TypeSafe System One REST. Override via options.ask for tests
 // or other backends. Returns the `answers` object.
-export async function askTypeSafe(state, questions, opts = {}) {
+export async function askTypeSafe(state: JevState, questions: Questions, opts: BackendOptions = {}): Promise<Answers> {
   const apiKey = opts.apiKey ?? (await resolveKey(["TYPESAFE_API_KEY"]));
   if (!apiKey) throw new Error("TYPESAFE_API_KEY is not set");
   const res = await fetch(`${opts.baseUrl ?? "https://api.typesafe.ai"}/v1/systemone`, {
@@ -351,7 +512,7 @@ export async function askTypeSafe(state, questions, opts = {}) {
   });
   if (!res.ok) throw new Error(`systemone ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const body = await res.json();
-  const answers = body.answers ?? {};
+  const answers: Answers = body.answers ?? {};
   if (body.model || body.usage) {
     answers[ASK_META] = {
       model: body.model,
@@ -368,7 +529,7 @@ export async function askTypeSafe(state, questions, opts = {}) {
 // surface. Question type "noul" is sent as "boolean"; answers are normalized
 // back to the internal shape. Confidence lives in
 // providerMetadata.typesafe.confidence per question.
-export async function askGateway(state, questions, opts = {}) {
+export async function askGateway(state: JevState, questions: Questions, opts: BackendOptions = {}): Promise<Answers> {
   const apiKey =
     opts.apiKey ?? (await resolveKey(["AI_GATEWAY_API_KEY", "TYPESAFE_API_KEY"]));
   if (!apiKey) throw new Error("AI_GATEWAY_API_KEY is not set");
@@ -396,8 +557,8 @@ export async function askGateway(state, questions, opts = {}) {
   if (!res.ok) throw new Error(`gateway evaluation ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const body = await res.json();
   const conf = body.providerMetadata?.typesafe?.confidence ?? {};
-  const answers = Object.fromEntries(
-    Object.entries(body.answers ?? {}).map(([k, a]) => {
+  const answers: Answers = Object.fromEntries(
+    Object.entries<any>(body.answers ?? {}).map(([k, a]) => {
       if (a.type === "boolean") return [k, { type: "noul", noul: a.probability }];
       if (a.type === "choice") {
         return [k, {
@@ -431,9 +592,9 @@ export async function askGateway(state, questions, opts = {}) {
 // that turns out to be a gateway key falls back to the gateway on auth
 // failure. The resolved backend is cached per loop run so the fallback probes
 // at most once.
-export function makeAsk(opts = {}) {
-  let resolved = opts.backend && opts.backend !== "auto" ? opts.backend : null;
-  const ask = async (state, questions) => {
+export function makeAsk(opts: BackendOptions = {}): Ask {
+  let resolved: "typesafe" | "gateway" | null = opts.backend && opts.backend !== "auto" ? opts.backend : null;
+  const ask: Ask = async (state, questions) => {
     if (resolved === "gateway") return askGateway(state, questions, opts);
     if (resolved === "typesafe") return askTypeSafe(state, questions, opts);
     if (!(await resolveKey(["TYPESAFE_API_KEY"], {}))) {
@@ -445,7 +606,7 @@ export function makeAsk(opts = {}) {
       resolved = "typesafe";
       return answers;
     } catch (err) {
-      if (/systemone (401|403)/.test(String(err?.message))) {
+      if (/systemone (401|403)/.test(errMsg(err))) {
         resolved = "gateway";
         return askGateway(state, questions, opts);
       }
@@ -481,21 +642,21 @@ function detectPlanner() {
   return undefined;
 }
 
-const fmtMs = (ms) =>
+const fmtMs = (ms?: number | null) =>
   ms == null ? "-" : ms >= 1000 ? `${(ms / 1000).toFixed(2)}s` : `${ms}ms`;
 
 // Render result.timings as a compact per-step table: every Jev/LLM request
 // plus the browser-side phases, so the user sees where each step's time went.
-export function formatTimings(result) {
+export function formatTimings(result?: Pick<RunResult, "timings" | "trace">): string {
   const t = result?.timings;
   if (!t?.steps?.length) return "jev timings: nothing recorded";
-  const tr = result.trace || [];
-  const clip = (s, n) => {
-    s = String(s);
+  const tr = result?.trace || [];
+  const clip = (v: unknown, n: number) => {
+    const s = String(v);
     return s.length > n ? s.slice(0, n - 1) + "…" : s;
   };
   const rows = t.steps.map((s) => {
-    const e = tr.find((x) => x.step === s.step) || {};
+    const e: Partial<TraceEntry> = tr.find((x) => x.step === s.step) || {};
     return {
       n: s.step,
       op: s.op || e.op || "-",
@@ -509,11 +670,12 @@ export function formatTimings(result) {
       _llm: s.askMs || 0,
     };
   });
-  const keys = ["n", "op", "target", "snap", "dom", "llm", "act", "vrf", "total"];
+  const keys = ["n", "op", "target", "snap", "dom", "llm", "act", "vrf", "total"] as const;
+  type Row = Record<(typeof keys)[number], string | number>;
   const w = keys.map((k) => Math.max(k.length, ...rows.map((r) => String(r[k]).length)));
-  const line = (r) => keys.map((k, i) => String(r[k]).padEnd(w[i])).join("  ").trimEnd();
+  const line = (r: Row) => keys.map((k, i) => String(r[k]).padEnd(w[i]!)).join("  ").trimEnd();
   const maxLlm = Math.max(1, ...rows.map((r) => r._llm));
-  const bar = (ms) => "▮".repeat(Math.max(1, Math.round((ms / maxLlm) * 12)));
+  const bar = (ms: number) => "▮".repeat(Math.max(1, Math.round((ms / maxLlm) * 12)));
   const calls = t.llmCalls
     .map((c) => `#${c.seq} s${c.step} ${c.kind} ${fmtMs(c.ms)}${c.ok ? "" : " ERR"}`)
     .join("  ·  ");
@@ -533,7 +695,7 @@ export function formatTimings(result) {
   ].join("\n");
 }
 
-export async function runJevLoop(page, options = {}) {
+export async function runJevLoop(page: Page, options: RunOptions): Promise<RunResult> {
   const {
     goal,
     maxSteps = 20,
@@ -548,20 +710,21 @@ export async function runJevLoop(page, options = {}) {
     verifyRecheckMs = 400,
     guard = DEFAULT_GUARD,
     keepTrace = true,
+    record,
   } = options;
   if (!goal) throw new Error("runJevLoop: options.goal is required");
   const values = normalizeValues(options.values);
-  const history = [];
-  const trace = [];
+  const history: string[] = [];
+  const trace: TraceEntry[] = [];
   const loopStart = performance.now();
-  const llmCalls = []; // every ask() request: {seq, step, kind, ms, ok}
-  const stepTimes = []; // per-step phase breakdown: {step, snapshotMs, domMs, askMs, actMs, verifyMs, stepMs}
+  const llmCalls: LlmCall[] = []; // every ask() request: {seq, step, kind, ms, ok}
+  const stepTimes: StepTiming[] = []; // per-step phase breakdown: {step, snapshotMs, domMs, askMs, actMs, verifyMs, stepMs}
   let callSeq = 0;
   const planner =
     typeof options.planner === "object" && options.planner
       ? [options.planner.agent, options.planner.model].filter(Boolean).join("/")
       : options.planner ?? detectPlanner();
-  const timings = () => {
+  const timings = (): Timings => {
     const tokens = llmCalls.reduce(
       (a, c) => ({
         input: a.input + (c.usage?.inputTokens || 0),
@@ -585,22 +748,37 @@ export async function runJevLoop(page, options = {}) {
   let repeats = 0;
   let errors = 0;
   let lastSnapshot = "";
+  let acted = 0; // last step whose action ran — network events are attributed to it
+  const recCfg = normalizeRecord(record);
+  let rec = recCfg ? createRecorder(page, recCfg) : null;
+  let recStartError: string | undefined;
+  if (rec) {
+    try { await rec.start(); } catch (e) {
+      recStartError = `start: ${errMsg(e).slice(0, 120)}`;
+      rec = null;
+    }
+  }
+  const stopRecord = async (): Promise<RecordResult | undefined> =>
+    rec ? rec.stop(acted) : recStartError ? { network: [], errors: [recStartError] } : undefined;
 
   for (let step = 1; step <= maxSteps; step++) {
     const stepStart = performance.now();
-    const st = { step };
+    const st: StepTiming = { step };
     stepTimes.push(st);
     let snapshot = "";
     let url = "";
-    const finish = (status, reason) => {
+    const finish = async (status: RunResult["status"], reason: string): Promise<RunResult> => {
       if (st.stepMs == null) st.stepMs = Math.round(performance.now() - stepStart);
+      const recorded = await stopRecord();
+      // Recording used raw CDP, which invalidates refs: hand back a fresh snapshot.
+      if (recorded?.refsInvalidated) snapshot = await page.snapshot(snapshotOptions).catch(() => snapshot);
       return {
         status, reason, steps: step, trace: keepTrace ? trace : undefined,
-        snapshot, url, timings: timings(),
+        snapshot, url, timings: timings(), record: recorded,
       };
     };
-    const timedAsk = async (s, q, kind = "decide") => {
-      const rec = { seq: ++callSeq, step, kind, ok: false };
+    const timedAsk = async (s: JevState, q: Questions, kind: LlmCall["kind"] = "decide") => {
+      const rec: LlmCall = { seq: ++callSeq, step, kind, ok: false };
       llmCalls.push(rec);
       const at = performance.now();
       try {
@@ -619,22 +797,23 @@ export async function runJevLoop(page, options = {}) {
         st.askMs = (st.askMs || 0) + rec.ms;
       }
     };
+    if (rec) await rec.drain(acted).catch(() => {});
     let phase = performance.now();
     // Candidates = a11y refs + DOM-discovered clickables ("dark matter":
     // div+@click cards, collapsed menuitems, same-origin iframe content that
     // never gets a snapshot ref). Refs keep priority; DOM fills the budget.
-    const collect = async (snap) => {
-      const parsed = parseSnapshot(snap);
+    const collect = async (snap: string) => {
+      const parsed: Candidate[] = parseSnapshot(snap);
       const refd = parsed.filter((c) => c.actionable);
-      let dom = [];
+      let dom: DomItem[] = [];
       try {
         dom = await collectDomInteractives(
           page,
-          parsed.filter((c) => c.css).map((c) => c.css),
+          parsed.filter((c) => c.css).map((c) => c.css!),
           maxElements,
         );
       } catch {}
-      const domCands = dom.map((d) => ({
+      const domCands: Candidate[] = dom.map((d) => ({
         ref: `d${d.idx}`, domIdx: d.idx, xy: d.xy,
         role: `dom:${d.role || d.tag}`, name: d.name,
         context: "", actionable: true,
@@ -669,14 +848,14 @@ export async function runJevLoop(page, options = {}) {
     if (selects.length) {
       phase = performance.now();
       try {
-        const lists = await page.evaluate((cssList) =>
+        const lists = await page.evaluate((cssList: string[]) =>
           cssList.map((css) => {
-            const el = document.querySelector(css);
+            const el = document.querySelector<HTMLSelectElement>(css);
             return el?.tagName === "SELECT"
               ? [...el.options].map((o) => (o.label || o.text || o.value || "").trim()).filter(Boolean)
               : null;
-          }), selects.map((c) => c.css));
-        selects.forEach((c, i) => { if (lists[i]?.length) c.options = lists[i]; });
+          }), selects.map((c) => c.css!));
+        selects.forEach((c, i) => { if (lists[i]?.length) c.options = lists[i]!; });
       } catch {}
       st.domMs += Math.round(performance.now() - phase);
     }
@@ -705,16 +884,16 @@ export async function runJevLoop(page, options = {}) {
       try {
         answers = await timedAsk(state, questions, "decide-retry");
       } catch (err2) {
-        return finish("escalate", `ask backend failed: ${String(err2?.message || err2).slice(0, 120)}`);
+        return finish("escalate", `ask backend failed: ${errMsg(err2).slice(0, 120)}`);
       }
     }
     const op = answers.op || {};
-    const entry = { step, op: op.choice, opConfidence: op.confidence, url };
+    const entry: TraceEntry = { step, op: op.choice, opConfidence: op.confidence, url };
     trace.push(entry);
     st.op = op.choice;
 
-    if (answers.stuck?.noul >= stuckThreshold) return finish("blocked", "jev reports stuck");
-    if (op.choice === "done" || op.choice === "escalate" || answers.done?.noul >= doneThreshold) {
+    if ((answers.stuck?.noul ?? 0) >= stuckThreshold) return finish("blocked", "jev reports stuck");
+    if (op.choice === "done" || op.choice === "escalate" || (answers.done?.noul ?? 0) >= doneThreshold) {
       if (op.choice === "escalate") return finish("escalate", "jev escalated");
       if (verify) {
         phase = performance.now();
@@ -732,15 +911,15 @@ export async function runJevLoop(page, options = {}) {
           continue;
         }
       }
-      return { ...finish("done", "goal achieved"), verified: Boolean(verify) };
+      return { ...(await finish("done", "goal achieved")), verified: Boolean(verify) };
     }
     if ((op.confidence ?? 0) < minOpConfidence) {
       return finish("escalate", `low op confidence ${op.confidence}`);
     }
 
-    const act = op.choice;
-    let ref = null;
-    let target = null;
+    const act = String(op.choice);
+    let ref: number | string | null = null;
+    let target: Candidate | null = null;
     if (act === "scroll") {
       // Forgiving: weak or absent scroll targets just scroll the window.
       const tAns = answers.target_scroll || {};
@@ -762,7 +941,7 @@ export async function runJevLoop(page, options = {}) {
         return finish("escalate", `low target confidence ${tAns.confidence} for ${act}`);
       }
       ref = tAns.choice;
-      target = all.find((c) => String(c.ref) === String(ref));
+      target = all.find((c) => String(c.ref) === String(ref)) ?? null;
       if (!target) {
         history.push(`${act}: target @${ref} not in snapshot`);
         st.stepMs = Math.round(performance.now() - stepStart);
@@ -775,14 +954,14 @@ export async function runJevLoop(page, options = {}) {
       }
     }
 
-    let value = null;
+    let value: string | null = null;
     if (act === "fill" || act === "select") {
       const keys = Object.keys(values);
       if (act === "select") {
         const sel = candidates.filter((c) => c.options?.length);
         if (sel.length === 1 && answers.option_pick?.choice) {
           const p = answers.option_pick.choice;
-          value = sel[0].options.includes(p) ? p : sel[0].options[Number(p)] ?? null;
+          value = sel[0]!.options!.includes(p) ? p : sel[0]!.options![Number(p)] ?? null;
         }
       }
       if (value == null) {
@@ -805,12 +984,13 @@ export async function runJevLoop(page, options = {}) {
     lastSnapshot = snapshot;
 
     phase = performance.now();
+    acted = step;
     try {
       const isDom = target?.domIdx != null;
-      const sel = isDom ? `loc=css:[${DOM_ATTR}="${target.domIdx}"]` : `@${ref}`;
+      const sel = isDom ? `loc=css:[${DOM_ATTR}="${target!.domIdx}"]` : `@${ref}`;
       const label = `${act} ${target?.name || ref}`.slice(0, 60);
       const clickDom = async () => {
-        if (target.xy) await page.mouse.click(target.xy.x, target.xy.y, { label });
+        if (target!.xy) await page.mouse.click(target!.xy!.x, target!.xy!.y, { label });
         else await page.click(sel, { label });
       };
       if (act === "click") {
@@ -818,20 +998,20 @@ export async function runJevLoop(page, options = {}) {
         else await page.click(sel, { label });
       }
       else if (act === "fill") {
-        if (isDom) { await clickDom(); await page.keyboard.insertText(value); }
-        else await page.fill(sel, value);
+        if (isDom) { await clickDom(); await page.keyboard.insertText(value!); }
+        else await page.fill(sel, value!);
       }
       else if (act === "select") {
         if (isDom) return finish("escalate", "select on DOM-discovered element unsupported");
         try {
-          await page.selectOption(sel, value);
+          await page.selectOption(sel, value!);
         } catch (selErr) {
           // selectOption lists real options on failure — feed them back to Jev
           // instead of guessing (also covers selects inside iframes/shadow DOM
           // that pre-fetch enrichment cannot reach).
-          const opts = [...String(selErr?.message || "").matchAll(/value="([^"]*)",\s*label="([^"]*)"/g)]
+          const opts = [...String((selErr as Error)?.message || "").matchAll(/value="([^"]*)",\s*label="([^"]*)"/g)]
             .map((m) => m[2] || m[1])
-            .filter(Boolean);
+            .filter((x): x is string => Boolean(x));
           if (!opts.length) throw selErr;
           const a2 = await timedAsk(state, {
             option_retry: {
@@ -862,15 +1042,16 @@ export async function runJevLoop(page, options = {}) {
       history.push(`${act} ${target ? `@${ref} "${target.name}"` : ""} ${value != null ? `-> "${value}"` : ""} ok`.trim());
     } catch (err) {
       errors++;
-      history.push(`${act} @${ref} failed: ${String(err.message || err).slice(0, 120)}`);
-      if (errors >= 2) return finish("escalate", `action errors: ${err.message || err}`);
+      history.push(`${act} @${ref} failed: ${errMsg(err).slice(0, 120)}`);
+      if (errors >= 2) return finish("escalate", `action errors: ${errMsg(err)}`);
     } finally {
       st.actMs = Math.round(performance.now() - phase);
     }
     st.stepMs = Math.round(performance.now() - stepStart);
   }
+  const recorded = await stopRecord();
   return {
     status: "max_steps", reason: `hit maxSteps=${maxSteps}`, steps: maxSteps,
-    trace, timings: timings(),
+    trace, timings: timings(), record: recorded,
   };
 }

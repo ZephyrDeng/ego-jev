@@ -1,4 +1,4 @@
-// selftest.mjs — offline smoke test for jev-loop.mjs inside ego-browser.
+// selftest.mjs — offline smoke test for jev-loop.ts inside ego-browser.
 // Run from the skill root: ego-browser nodejs < scripts/selftest.mjs
 // (or set EGO_JEV_DIR to the skill root when the runtime's cwd differs).
 // Uses a rule-based mock ask — no TYPESAFE_API_KEY needed.
@@ -11,7 +11,7 @@ const {
   buildQuestions,
   runJevLoop,
   formatTimings,
-} = await import(pathToFileURL(resolve(skillDir, "scripts/jev-loop.mjs")).href);
+} = await import(pathToFileURL(resolve(skillDir, "scripts/jev-loop.ts")).href);
 
 const HTTPBIN_SNAP = `[p1 "httpbin.org/forms/post" | space "jev probe"(12): 1 managed, 0 untracked — p1* "httpbin.org/forms/post"]
 root

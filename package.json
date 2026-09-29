@@ -3,9 +3,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "vitest run"
+    "test": "vitest run",
+    "typecheck": "tsc -p ."
   },
   "devDependencies": {
+    "@types/node": "24.13.6",
+    "typescript": "7.0.2",
     "vitest": "^5.0.1"
   }
 }

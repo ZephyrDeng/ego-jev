@@ -3,7 +3,7 @@ name: ego-jev
 description: "Jev (TypeSafe System One) inner loop for ego-browser — one ~0.4 s typed decision per DOM step instead of an LLM turn. Use for multi-step clicking through a semantic page: fill known values into a form, set filters, open a row/card/menu by name, reach a page via nav or site search. Escalates login, payment, free text, canvas and content reading back to you."
 license: MIT
 metadata:
-  version: "0.3.2"
+  version: "0.4.0"
 ---
 
 # ego-jev
@@ -18,11 +18,19 @@ Read `ego-browser` first for TaskSpace and Page rules; this skill only replaces
 the per-step "which element" judgment.
 
 Requires: [ego lite](https://lite.ego.app/) installed and onboarded (provides
-the `ego-browser` command), the `ego-browser` skill, and `TYPESAFE_API_KEY` or
+the `ego-browser` command, whose Node 24 runtime loads the `.ts` scripts
+directly — no build step), the `ego-browser` skill, and `TYPESAFE_API_KEY` or
 `AI_GATEWAY_API_KEY` in `~/.config/ego-jev/secrets.env`.
 
 ## Run
 
+0. Ask the user once, before the first run of the task: "是否开启网络请求 /
+   cookie 记录（`record`）？" Recording is off by default. On yes, pass
+   `record: true` (request metadata + cookie metadata only) and add
+   `headers` / `bodies` / `cookieValues` / `dir` only when the user asks for
+   them. Skip the question when the user already said yes or no, and reuse the
+   answer for later loops in the same task. Details, redaction and limits:
+   [`reference.md`](reference.md#record-opt-in).
 1. Have a Page on the starting URL (`goto` with `waitUntil: "domcontentloaded"`
    on slow marketing sites; the default `load` times out at 15 s).
 2. Call the loop with the goal verbatim, every value Jev may need to type, and
@@ -31,12 +39,13 @@ the `ego-browser` command), the `ego-browser` skill, and `TYPESAFE_API_KEY` or
 
    ```js
    const { runJevLoop } = await import(
-     `file://${SKILL_DIR}/scripts/jev-loop.mjs`
+     `file://${SKILL_DIR}/scripts/jev-loop.ts`
    );
    const result = await runJevLoop(page, {
      goal: "Open the Billing page and show the credit balance",
      values: { query: { value: "pricing", hint: "site search query" } },
      verify: async (p) => /billing/.test(await p.url()),
+     // record: true,  // only after the user opted in (step 0)
    });
    ```
 
@@ -69,10 +78,16 @@ the `ego-browser` command), the `ego-browser` skill, and `TYPESAFE_API_KEY` or
 
    ```js
    const { formatTimings } = await import(
-     `file://${SKILL_DIR}/scripts/jev-loop.mjs`
+     `file://${SKILL_DIR}/scripts/jev-loop.ts`
    );
    console.log(formatTimings(result));
    ```
+
+With `record` on, `result.record` holds `network` (one entry per XHR / fetch /
+document request, tagged with the `step` whose action caused it) and `cookies`
+(`before` / `after` / `diff`); print it with `formatRecord(result)` (same
+module) or query the arrays directly. Recorded endpoints can be replayed with
+`page.fetch()`, which carries the page's cookies.
 
 Done when the page state your goal describes is confirmed by `verify` or your
 own `page.evaluate` — Jev's `done` is a claim, the check is yours.
