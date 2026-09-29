@@ -43,6 +43,10 @@ What it also does:
   to you, in English and 中文. `done` is a claim; your `verify` decides.
 - **Runs without a key.** The bundled selftest drives the loop with a mock
   decider inside ego-browser — same mechanics, nothing to configure.
+- **Records what happened, only if you ask.** Opt-in `record` captures the
+  XHR/fetch requests each step triggered plus a cookie before/after diff, with
+  headers, bodies and cookie values off and query tokens redacted by default.
+  The agent asks before the first run; off unless you say yes.
 
 What it never does: Jev does not type free text, does not read screenshots,
 and does not touch login, payment or canvas. Those come back to the agent
@@ -89,6 +93,9 @@ operation and target in one call, then ego executes it:
      verify: async (p) => /billing/.test(await p.url()),
    });
    ```
+
+   Add `record: true` to also get `result.record` (requests per step, cookie
+   diff); see [Record](skills/ego-jev/reference.md#record-opt-in).
 
    `result.status` is `done`, `escalate`, `blocked` or `max_steps` — the loop
    fails loud and names the reason. Options, thresholds, backends and latency
