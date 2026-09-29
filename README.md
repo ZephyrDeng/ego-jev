@@ -83,7 +83,7 @@ operation and target in one call, then ego executes it:
    `verify` for the real done state:
 
    ```js
-   const { runJevLoop } = await import(`file://${SKILL_DIR}/scripts/jev-loop.mjs`);
+   const { runJevLoop } = await import(`file://${SKILL_DIR}/scripts/jev-loop.ts`);
    const result = await runJevLoop(page, {
      goal: "Open the Billing page and show the credit balance",
      verify: async (p) => /billing/.test(await p.url()),

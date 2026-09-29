@@ -1,6 +1,6 @@
 {
   "name": "ego-jev",
-  "version": "0.2.1",
+  "version": "0.4.0",
   "description": "Jev (TypeSafe System One) inner loop for ego-browser — one ~0.4 s typed decision per DOM step instead of an LLM turn.",
   "author": {
     "name": "ZephyrDeng"
