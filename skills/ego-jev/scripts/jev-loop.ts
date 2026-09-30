@@ -73,7 +73,14 @@ export interface JevState {
 
 export type Ask = ((state: JevState, questions: Questions) => Promise<Answers>) & {
   describe?: () => { backend: string; model: string };
+  preflight?: () => Promise<PreflightResult>;
 };
+
+type Backend = "typesafe" | "gateway";
+
+export type PreflightResult =
+  | { ok: true; backend: Backend | "custom" }
+  | { ok: false; backend: Backend | "custom"; reason: string };
 
 export interface BackendOptions {
   backend?: "auto" | "typesafe" | "gateway";
@@ -463,13 +470,13 @@ function normalizeValues(values?: Record<string, ValueInput>): Values {
   );
 }
 
-// ego's nodejs runtime is a long-lived process: it does NOT inherit the
-// calling shell's env. Key resolution order: opts.apiKey, process.env,
+// Resolve in the runtime making the requests, whose environment can differ
+// from the calling shell. Key resolution order: opts.apiKey, process.env,
 // ~/.config/ego-jev/secrets.env, then `export NAME=value` lines in
 // ~/.zshenv / ~/.zshrc.
 async function resolveKey(envNames: string[], opts: { apiKey?: string } = {}): Promise<string | null> {
-  if (opts.apiKey) return opts.apiKey;
-  for (const n of envNames) if (process.env[n]) return process.env[n];
+  if (opts.apiKey !== undefined) return opts.apiKey.trim() || null;
+  for (const n of envNames) if (process.env[n]?.trim()) return process.env[n]!.trim();
   const fs = await import("node:fs/promises");
   const home = process.env.HOME || "";
   const files = [
@@ -494,6 +501,38 @@ async function resolveKey(envNames: string[], opts: { apiKey?: string } = {}): P
   return null;
 }
 
+class MissingCredentialError extends Error {
+  readonly code = "JEV_MISSING_CREDENTIALS";
+  constructor(backend: Backend) {
+    const key = backend === "typesafe" ? "TYPESAFE_API_KEY" : "AI_GATEWAY_API_KEY";
+    super(
+      `${key} is not set for ${backend}${backend === "gateway" ? " (TYPESAFE_API_KEY fallback also unavailable)" : ""}. ` +
+      `Set export ${key}=<key> in ~/.config/ego-jev/secrets.env or the current runtime, ` +
+      `or pass apiKey with backend: "${backend}". ` +
+      "Re-run preflightJev in ego-browser nodejs; shell exports may not reach its runtime.",
+    );
+    this.name = "MissingCredentialError";
+  }
+}
+
+// Shared by makeAsk's preflight and its real requests. Credentials stay private;
+// preflight returns only the selected route and safe configuration guidance.
+async function resolveBackend(opts: BackendOptions): Promise<{ backend: Backend; apiKey: string | null }> {
+  if (opts.backend !== "gateway") {
+    const apiKey = await resolveKey(["TYPESAFE_API_KEY"], opts);
+    if (apiKey || opts.backend === "typesafe") return { backend: "typesafe", apiKey };
+  }
+  return { backend: "gateway", apiKey: await resolveKey(["AI_GATEWAY_API_KEY", "TYPESAFE_API_KEY"], opts) };
+}
+
+// Call inside the runtime that will run Jev, before creating/navigating a
+// TaskSpace. No Page, browser operation, fetch, model request or key in output.
+// An injected ask without a preflight hook owns its own configuration.
+export async function preflightJev(opts: BackendOptions & { ask?: Ask } = {}): Promise<PreflightResult> {
+  const ask = opts.ask ?? makeAsk(opts);
+  return ask.preflight ? ask.preflight() : { ok: true, backend: "custom" };
+}
+
 // Response metadata (served model version, token usage) rides back on the
 // answers object under this symbol — invisible to the decision code, read by
 // the loop's timing recorder.
@@ -502,8 +541,8 @@ export const ASK_META = Symbol("ask-meta");
 // Default ask: TypeSafe System One REST. Override via options.ask for tests
 // or other backends. Returns the `answers` object.
 export async function askTypeSafe(state: JevState, questions: Questions, opts: BackendOptions = {}): Promise<Answers> {
-  const apiKey = opts.apiKey ?? (await resolveKey(["TYPESAFE_API_KEY"]));
-  if (!apiKey) throw new Error("TYPESAFE_API_KEY is not set");
+  const apiKey = await resolveKey(["TYPESAFE_API_KEY"], opts);
+  if (!apiKey) throw new MissingCredentialError("typesafe");
   const res = await fetch(`${opts.baseUrl ?? "https://api.typesafe.ai"}/v1/systemone`, {
     method: "POST",
     headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
@@ -531,8 +570,8 @@ export async function askTypeSafe(state: JevState, questions: Questions, opts: B
 // providerMetadata.typesafe.confidence per question.
 export async function askGateway(state: JevState, questions: Questions, opts: BackendOptions = {}): Promise<Answers> {
   const apiKey =
-    opts.apiKey ?? (await resolveKey(["AI_GATEWAY_API_KEY", "TYPESAFE_API_KEY"]));
-  if (!apiKey) throw new Error("AI_GATEWAY_API_KEY is not set");
+    await resolveKey(["AI_GATEWAY_API_KEY", "TYPESAFE_API_KEY"], opts);
+  if (!apiKey) throw new MissingCredentialError("gateway");
   const gwQuestions = Object.fromEntries(
     Object.entries(questions).map(([k, q]) => [
       k,
@@ -593,22 +632,40 @@ export async function askGateway(state: JevState, questions: Questions, opts: Ba
 // failure. The resolved backend is cached per loop run so the fallback probes
 // at most once.
 export function makeAsk(opts: BackendOptions = {}): Ask {
-  let resolved: "typesafe" | "gateway" | null = opts.backend && opts.backend !== "auto" ? opts.backend : null;
+  let resolved: Backend | null = opts.backend && opts.backend !== "auto" ? opts.backend : null;
+  let mayFallback = resolved === null;
+  let config: ReturnType<typeof resolveBackend> | undefined;
+  const prepare = async () => {
+    const ready = await (config ??= resolveBackend(opts));
+    resolved = ready.backend;
+    if (!ready.apiKey) throw new MissingCredentialError(ready.backend);
+    return { backend: ready.backend, apiKey: ready.apiKey };
+  };
   const ask: Ask = async (state, questions) => {
-    if (resolved === "gateway") return askGateway(state, questions, opts);
-    if (resolved === "typesafe") return askTypeSafe(state, questions, opts);
-    if (!(await resolveKey(["TYPESAFE_API_KEY"], {}))) {
-      resolved = "gateway";
-      return askGateway(state, questions, opts);
-    }
+    const ready = await prepare();
+    if (ready.backend === "gateway") return askGateway(state, questions, { ...opts, apiKey: ready.apiKey });
     try {
-      const answers = await askTypeSafe(state, questions, opts);
-      resolved = "typesafe";
+      const answers = await askTypeSafe(state, questions, { ...opts, apiKey: ready.apiKey });
+      mayFallback = false;
       return answers;
     } catch (err) {
-      if (/systemone (401|403)/.test(errMsg(err))) {
+      if (mayFallback && /systemone (401|403)/.test(errMsg(err))) {
+        mayFallback = false;
         resolved = "gateway";
-        return askGateway(state, questions, opts);
+        config = resolveBackend({ ...opts, backend: "gateway" });
+        const fallback = await prepare();
+        return askGateway(state, questions, { ...opts, apiKey: fallback.apiKey });
+      }
+      throw err;
+    }
+  };
+  ask.preflight = async () => {
+    try {
+      const ready = await prepare();
+      return { ok: true, backend: ready.backend };
+    } catch (err) {
+      if (err instanceof MissingCredentialError) {
+        return { ok: false, backend: resolved!, reason: err.message };
       }
       throw err;
     }
@@ -744,6 +801,14 @@ export async function runJevLoop(page: Page, options: RunOptions): Promise<RunRe
       steps: stepTimes,
     };
   };
+  if (ask.preflight) {
+    const ready = await ask.preflight();
+    if (!ready.ok) return {
+      status: "escalate", reason: ready.reason, steps: 0,
+      trace: keepTrace ? trace : undefined, snapshot: "", url: "",
+      timings: timings(),
+    };
+  }
   let lastFingerprint = "";
   let repeats = 0;
   let errors = 0;
@@ -879,6 +944,7 @@ export async function runJevLoop(page: Page, options: RunOptions): Promise<RunRe
     try {
       answers = await timedAsk(state, questions);
     } catch (askErr) {
+      if (askErr instanceof MissingCredentialError) return finish("escalate", askErr.message);
       // transient backend hiccup (gateway 5xx, timeout): retry once
       await page.waitForTimeout(800).catch(() => {});
       try {
