@@ -1,7 +1,10 @@
-// selftest.mjs — offline smoke test for jev-loop.ts inside ego-browser.
+// selftest.mjs — explicit demo/maintenance browser test for jev-loop.ts.
 // Run from the skill root: ego-browser nodejs < scripts/selftest.mjs
 // (or set EGO_JEV_DIR to the skill root when the runtime's cwd differs).
-// Uses a rule-based mock ask — no TYPESAFE_API_KEY needed.
+// Uses scripted mock decisions: no Jev backend key or model requests.
+// Requires real ego-browser and httpbin.org; creates a TaskSpace and changes
+// the remote page. Not offline or a real Jev availability check. Run only for
+// an explicit test/demo request, never as a normal task or missing-key fallback.
 
 const { pathToFileURL } = await import("node:url");
 const { resolve } = await import("node:path");

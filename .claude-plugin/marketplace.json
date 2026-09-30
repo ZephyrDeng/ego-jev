@@ -8,7 +8,7 @@
     {
       "name": "ego-jev",
       "source": "./",
-      "version": "0.4.0",
+      "version": "0.4.1",
       "description": "Jev (TypeSafe System One) inner loop for ego-browser — one ~0.4 s typed decision per DOM step instead of an LLM turn."
     }
   ]

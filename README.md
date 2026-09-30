@@ -41,8 +41,10 @@ What it also does:
 - **Escalates instead of guessing.** Pay, delete, upload, confirm, login
   pages, free text, low confidence and repeated actions all hand control back
   to you, in English and 中文. `done` is a claim; your `verify` decides.
-- **Runs without a key.** The bundled selftest drives the loop with a mock
-  decider inside ego-browser — same mechanics, nothing to configure.
+- **Checks configuration before browser work.** A safe preflight resolves
+  credentials without a model request. Missing credentials pause Jev before
+  browser work; the agent asks once about secure local setup, an existing
+  configuration location or plain ego-browser for the same user goal.
 - **Records what happened, only if you ask.** Opt-in `record` captures the
   XHR/fetch requests each step triggered plus a cookie before/after diff, with
   headers, bodies and cookie values off and query tokens redacted by default.
@@ -53,6 +55,11 @@ and does not touch login, payment or canvas. Those come back to the agent
 that called it.
 
 ## Demo
+
+This author demo illustrates the mechanics. Ordinary tasks use the user's
+goal, URL/existing Page and supplied values; ask a minimal clarification if
+the goal or starting target is missing. Run examples or demos only when the
+user explicitly requests a test/demo, including when no backend key is set.
 
 Four Jev decisions on a live form — each step numbers the elements, picks an
 operation and target in one call, then ego executes it:
@@ -77,20 +84,52 @@ operation and target in one call, then ego executes it:
      — fastest, ~300–550 ms/step, $5 monthly credit without a card, or
    - `AI_GATEWAY_API_KEY` for Jev through the Vercel AI Gateway.
 
-   No key yet? Run the offline selftest, mock decider included:
+3. In `ego-browser nodejs`, run preflight **before** creating a TaskSpace or
+   navigating a Page. It uses the same credential lookup as the real backend
+   and returns only readiness, route and safe guidance, never the key:
 
-   ```bash
-   cd skills/ego-jev && ego-browser nodejs < scripts/selftest.mjs
+   ```js
+   const { preflightJev } = await import(`file://${SKILL_DIR}/scripts/jev-loop.ts`);
+   const backendOptions = {}; // use the task's supplied options, if any
+   const ready = await preflightJev(backendOptions);
+   if (ready.ok) {
+     console.log({ ...ready, next: "continue_jev" });
+   } else {
+     console.log({ ...ready, next: "pause_jev" });
+   }
    ```
 
-3. In an `ego-browser` script, call the loop on a Page with your goal and a
-   `verify` for the real done state:
+   Handle `ready.ok: false` by pausing the Jev branch and asking the user once
+   whether they want to configure a TypeSafe / Vercel key securely on this
+   machine, can identify an existing configuration location, or prefer plain
+   ego-browser. Never request or print a plaintext key or automatically
+   change real configuration. While awaiting the answer, create no TaskSpace
+   or Page, navigate no Page, make no model request and do not poll or retry.
+   If the user has already explicitly refused configuration or selected the
+   fallback, reuse that choice without asking again. Continue fallback with
+   the same user goal, URL/Page, supplied values and any existing TaskSpace
+   and ownership; do not switch to an author test page.
+
+   When the user says a key already exists or is now configured, use the
+   supported [lookup](skills/ego-jev/reference.md#backend-and-keys) without
+   exposing its value. Recreate any cached `makeAsk` instance or use fresh
+   backend options, then rerun preflight in the actual `ego-browser nodejs`
+   runtime; shell configuration alone may not reach it. Continue to step 4
+   only after `ready.ok: true`; otherwise keep Jev paused and report safe
+   guidance without repeating the question or busy waiting. Preflight checks
+   key resolvability, not real Jev availability or key validity.
+
+4. Create/resume the task's one TaskSpace and starting Page under the
+   `ego-browser` ownership rules, using the user's target. Bind `userGoal`,
+   `providedValues` and `verifyUserGoal` from that task, then call the loop:
 
    ```js
    const { runJevLoop } = await import(`file://${SKILL_DIR}/scripts/jev-loop.ts`);
    const result = await runJevLoop(page, {
-     goal: "Open the Billing page and show the credit balance",
-     verify: async (p) => /billing/.test(await p.url()),
+     ...backendOptions,
+     goal: userGoal,
+     values: providedValues,
+     verify: verifyUserGoal,
    });
    ```
 
@@ -100,6 +139,29 @@ operation and target in one call, then ego executes it:
    `result.status` is `done`, `escalate`, `blocked` or `max_steps` — the loop
    fails loud and names the reason. Options, thresholds, backends and latency
    numbers: [`skills/ego-jev/reference.md`](skills/ego-jev/reference.md).
+
+   The loop also preflights before any Page/recording operation. Unresolved
+   credentials return `escalate`, `steps: 0` and no model calls or retry wait.
+   Handle that result with step 3's one-time question rule.
+   On task success, follow `ego-browser`'s `finish({ keep })` cleanup rules.
+
+## Maintenance tests
+
+Run tests or author demos only for an explicit test/demo request; they are
+never a default task or a fallback for missing credentials. `npm test` and
+`npm run typecheck` are local regression gates using mocked Pages/network.
+
+The bundled selftest uses scripted mock decisions and needs no Jev key, but
+requires a real ego-browser connection, creates a TaskSpace, visits
+`https://httpbin.org/forms/post` and changes that page. It is not offline and
+does not validate real Jev credentials, service availability or latency.
+For that explicitly requested browser test only:
+
+```bash
+cd skills/ego-jev && ego-browser nodejs < scripts/selftest.mjs
+```
+
+See [maintenance test boundaries](skills/ego-jev/reference.md#maintenance-tests).
 
 ## FAQ
 

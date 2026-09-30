@@ -18,6 +18,26 @@ gate changes; `scripts/selftest.mjs` stays plain JS because it is piped to
 | `scripts/record.ts` | opt-in network/cookie recorder |
 | `scripts/types.ts` | `Page` (the ego-browser subset in use) and CDP event types |
 
+## Maintenance tests
+
+Ordinary tasks start from the [user's task context](SKILL.md#task-boundary).
+Author examples, README/demo content and the selftest are for explicit
+test/demo requests, never the default entry or a missing-key fallback.
+
+`npm test` runs Node regression tests with mocked Pages and model/network
+responses; `npm run typecheck` checks the TypeScript contract. They do not
+prove a live browser or real Jev service works.
+
+For an explicitly requested browser mechanics demo, run from this skill's
+directory: `ego-browser nodejs < scripts/selftest.mjs`. The selftest injects
+scripted mock decisions, so it needs no Jev backend key and sends no model
+requests. It **does** require ego-browser, creates a TaskSpace, navigates to
+`https://httpbin.org/forms/post`, fills demo values and mutates the page DOM.
+It depends on that external site and browser connectivity; it is not an
+offline test and does not validate real Jev authentication, decisions or
+service latency. Follow `ego-browser`'s ownership and cleanup rules for that
+explicit test task.
+
 ## Options
 
 | option | default | meaning |
@@ -33,7 +53,7 @@ gate changes; `scripts/selftest.mjs` stays plain JS because it is piped to
 | `doneThreshold` / `stuckThreshold` | 0.75 / 0.7 | noul triggers for done / blocked |
 | `guard` | pay/delete/upload/confirm regex (+ 中文) | matching targets escalate; `null` disables |
 | `backend` | `"auto"` | `"typesafe"` or `"gateway"` to force one |
-| `ask` | auto backend | inject `(state, questions) => answers` for tests/other backends |
+| `ask` | auto backend | inject `(state, questions) => answers` for tests/other backends; no built-in key required. An optional `ask.preflight()` owns that backend's configuration check |
 | `apiKey`, `baseUrl`, `gatewayBaseUrl`, `model`, `timeout` | — | backend overrides |
 | `record` | off | `true` or an object, see [Record](#record-opt-in) |
 | `planner` | env-detected | who drives the loop — pass `"harness/model"` (e.g. `"devin/swe-2-high"`) or `{agent, model}`; defaults to env markers (`AI_AGENT`, `CLAUDECODE`, `CODEX_HOME`, …) which only identify the harness, not its model |
@@ -50,6 +70,12 @@ Every result carries `result.timings`, on all exit paths:
 | `timings.planner` | the driving agent — `options.planner` verbatim, else the env-detected harness (model unknown unless passed) |
 | `timings.llmMs` / `timings.llmCalls` | summed Jev latency and one `{seq, step, kind, ms, ok, model, backend, usage}` per request — `kind` is `decide`, `decide-retry` or `option_retry` |
 | `timings.steps` | per-step `{step, op, snapshotMs, domMs, askMs, actMs, verifyMs, stepMs}` (`askMs` sums that step's calls) |
+
+Missing credentials in the built-in backend return the same `RunResult`
+structure with `status: "escalate"`, configuration guidance in `reason`,
+`steps: 0`, empty `snapshot`/`url`, `trace: []` (omitted with `keepTrace: false`)
+and empty `timings.steps` / `timings.llmCalls`, `llmMs: 0`. No Page, recording
+or network operation runs; configuration checks do not count as model calls.
 
 Served model and token usage ride back on the answers object under the
 exported `ASK_META` symbol (`{model, usage:{inputTokens, outputTokens}}`); the
@@ -99,9 +125,14 @@ Constraints, measured on ego lite:
 
 ## Backend and keys
 
-`auto` uses direct TypeSafe when `TYPESAFE_API_KEY` resolves, else the Vercel
-AI Gateway; a gateway key misfiled under `TYPESAFE_API_KEY` still works (401 →
-gateway, cached for the run).
+`auto` uses direct TypeSafe when `apiKey` or `TYPESAFE_API_KEY` resolves, else
+the Vercel AI Gateway. An explicit `apiKey` defaults to the direct route;
+pair a gateway key with `backend: "gateway"` to select it without an auth
+probe. In `auto`, a gateway key misfiled under `TYPESAFE_API_KEY` or passed as
+`apiKey` still falls back on the initial direct 401/403; the gateway route is
+cached for the run. Explicit `backend: "typesafe"` / `"gateway"` keeps that
+route. Gateway lookup retains the `TYPESAFE_API_KEY` fallback, preferring
+`AI_GATEWAY_API_KEY` within each lookup tier.
 
 | backend | endpoint | measured per step |
 | --- | --- | --- |
@@ -112,11 +143,57 @@ Browser-side cost is negligible (snapshot 8–18 ms, DOM walk ~1 ms); Jev
 latency scales with payload, so `target_fill`/`target_select` heads list only
 role-compatible elements.
 
-ego's nodejs runtime is a long-lived process that does not inherit the shell
-env. Key lookup order: `opts.apiKey` → `process.env` →
+Check configuration in the `ego-browser nodejs` runtime that will make the
+requests; its environment can differ from the calling shell. Key lookup
+order: `opts.apiKey` → `process.env` →
 `~/.config/ego-jev/secrets.env` → `export NAME=value` lines in `~/.zshenv` /
-`~/.zshrc`; variable-name priority beats file order. Both keys live in
-`secrets.env` (sourced by `.zshrc`). OpenRouter does not host Jev.
+`~/.zshrc` (paths use that runtime's `HOME`); variable-name priority beats
+file order. Files are parsed as simple assignments, not executed or sourced.
+An explicit blank `apiKey` fails instead of using an unrelated ambient key;
+blank environment values are skipped. Configure a key locally through a
+secure channel, never print it or ask for it in chat. OpenRouter does not host Jev.
+
+### Preflight
+
+Before creating a TaskSpace or navigating, call exported
+`preflightJev(backendOptions)` in the same runtime and with the same options
+as the intended loop. It shares the built-in backend resolver and returns
+only `{ok: true, backend: "typesafe" | "gateway" | "custom"}` or
+`{ok: false, backend, reason}`. It takes no Page, sends no network/model
+request, creates no TaskSpace and exposes no credential value. A successful
+preflight proves a key resolves, not its validity, balance or provider health.
+
+Handle `ready.ok: false` as a result, as shown in the [Run example](SKILL.md#run):
+pause the Jev branch and ask the user once whether they want to configure a
+TypeSafe / Vercel key securely on this machine, can identify an existing
+configuration location, or prefer plain ego-browser for the same goal. Never
+request or print a plaintext key or automatically change real configuration.
+While awaiting the answer, create no TaskSpace or Page, navigate no Page,
+make no model request and do not poll or retry. If the user has already
+explicitly refused configuration or selected the fallback, reuse that choice
+without asking again. Continue fallback with the same user goal, URL/Page,
+supplied values and any existing TaskSpace and ownership; do not switch to an
+author test page.
+
+`reason` supplies safe guidance for `~/.config/ego-jev/secrets.env`
+(`export NAME=value`), current-runtime environment or an explicit `apiKey`
+with `backend`. When the user says a key already exists or is now configured,
+use the supported lookup without exposing its value and rerun `preflightJev`
+with fresh backend options in the actual `ego-browser nodejs` runtime.
+`makeAsk(options).preflight()` uses that ask's privately cached configuration;
+recreate the ask after a configuration change. Resume Jev only after
+`ready.ok: true`; otherwise keep it paused and report safe guidance without
+repeating the question or busy waiting.
+
+`runJevLoop` invokes the built-in preflight before snapshot/DOM collection and
+before opt-in recording starts. Its missing-key `escalate` result follows the
+same one-time question rule. Missing-key errors stop without the 800ms retry
+wait; temporary network failures, 5xx and timeouts retain the existing single
+bounded retry.
+
+For a custom/mock `ask`, `preflightJev({ask})` skips built-in credentials and
+does not call the decision function. If the ask supplies `preflight`, its
+hook is used instead; the custom hook owns any effects and configuration.
 
 Pricing (console.typesafe.ai/settings/billing): $0.042 / MTok input, output
 free, $5 monthly credit without a card. One step ≈ 11K tokens ≈ $0.0005.
