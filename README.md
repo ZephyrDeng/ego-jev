@@ -33,6 +33,11 @@ d1  div       "member card G18655"
 Per step: ~300–550 ms for the decision, ~11K input tokens ≈ $0.0005. The
 alternative is a full LLM turn — seconds of reasoning plus a screenshot.
 
+Measured on a 7-step form task (3 runs, all verified, ~5.5 s wall): Jev
+decides in a median ~270 ms. One bare LLM call over the same snapshot takes
+~1.0 s (Haiku 4.5), ~1.4 s (Sonnet 4.5) or ~2.8 s (GPT-5 mini), before any
+agent overhead. Method and raw data: [`docs/bench`](docs/bench/README.md).
+
 What it also does:
 
 - **Finds elements the snapshot misses.** `dN` entries cover `div` cards,
