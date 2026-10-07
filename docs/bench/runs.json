@@ -1,0 +1,176 @@
+[
+ {
+  "i": 0,
+  "status": "done",
+  "verified": true,
+  "steps": 7,
+  "wall": 6246,
+  "llmMs": 2090,
+  "llmCalls": 7,
+  "model": "jev-1.13.0",
+  "askMs": [
+   494,
+   280,
+   310,
+   246,
+   254,
+   234,
+   272
+  ],
+  "stepMs": [
+   710,
+   414,
+   434,
+   1222,
+   875,
+   1029,
+   1559
+  ],
+  "usage": [
+   {
+    "inputTokens": 2905,
+    "outputTokens": 641
+   },
+   {
+    "inputTokens": 3032,
+    "outputTokens": 665
+   },
+   {
+    "inputTokens": 3099,
+    "outputTokens": 665
+   },
+   {
+    "inputTokens": 3122,
+    "outputTokens": 665
+   },
+   {
+    "inputTokens": 3133,
+    "outputTokens": 665
+   },
+   {
+    "inputTokens": 3145,
+    "outputTokens": 667
+   },
+   {
+    "inputTokens": 1317,
+    "outputTokens": 257
+   }
+  ]
+ },
+ {
+  "i": 1,
+  "status": "done",
+  "verified": true,
+  "steps": 7,
+  "wall": 5171,
+  "llmMs": 2306,
+  "llmCalls": 7,
+  "model": "jev-1.13.0",
+  "askMs": [
+   299,
+   288,
+   269,
+   329,
+   630,
+   244,
+   247
+  ],
+  "stepMs": [
+   431,
+   427,
+   403,
+   1296,
+   1011,
+   1015,
+   588
+  ],
+  "usage": [
+   {
+    "inputTokens": 2936,
+    "outputTokens": 668
+   },
+   {
+    "inputTokens": 3064,
+    "outputTokens": 692
+   },
+   {
+    "inputTokens": 3132,
+    "outputTokens": 692
+   },
+   {
+    "inputTokens": 3156,
+    "outputTokens": 691
+   },
+   {
+    "inputTokens": 3168,
+    "outputTokens": 691
+   },
+   {
+    "inputTokens": 3181,
+    "outputTokens": 691
+   },
+   {
+    "inputTokens": 1322,
+    "outputTokens": 257
+   }
+  ]
+ },
+ {
+  "i": 2,
+  "status": "done",
+  "verified": true,
+  "steps": 7,
+  "wall": 5089,
+  "llmMs": 2086,
+  "llmCalls": 7,
+  "model": "jev-1.13.0",
+  "askMs": [
+   270,
+   265,
+   249,
+   286,
+   457,
+   319,
+   240
+  ],
+  "stepMs": [
+   418,
+   396,
+   378,
+   1226,
+   1006,
+   1020,
+   645
+  ],
+  "usage": [
+   {
+    "inputTokens": 2936,
+    "outputTokens": 668
+   },
+   {
+    "inputTokens": 3064,
+    "outputTokens": 692
+   },
+   {
+    "inputTokens": 3132,
+    "outputTokens": 692
+   },
+   {
+    "inputTokens": 3156,
+    "outputTokens": 691
+   },
+   {
+    "inputTokens": 3168,
+    "outputTokens": 691
+   },
+   {
+    "inputTokens": 3181,
+    "outputTokens": 691
+   },
+   {
+    "inputTokens": 1322,
+    "outputTokens": 257
+   }
+  ]
+ }
+]

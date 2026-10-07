@@ -1,0 +1,51 @@
+[p1 "httpbin.org/forms/post" | space "ego-jev benchmark"(1): 1 managed, 0 untracked — p1* "httpbin.org/forms/post"]
+root
+  form
+    paragraph
+      text "Customer name:"
+      textbox [ref=1, loc=css:input[name="custname"]]
+    paragraph
+      text "Telephone:"
+      textbox [ref=2, loc=css:input[name="custtel"]]
+    paragraph
+      text "E-mail address:"
+      textbox [ref=3, loc=css:input[name="custemail"]]
+    group [ref=4]
+      text "Pizza Size"
+      paragraph
+        radio [ref=5]
+        text "Small"
+      paragraph
+        radio [ref=6]
+        text "Medium"
+      paragraph
+        radio [ref=7]
+        text "Large"
+    group [ref=8]
+      text "Pizza Toppings"
+      paragraph
+        checkbox [ref=9]
+        text "Bacon"
+      paragraph
+        checkbox [ref=10]
+        text "Extra Cheese"
+      paragraph
+        checkbox [ref=11]
+        text "Onion"
+      paragraph
+        checkbox [ref=12]
+        text "Mushroom"
+    paragraph
+      text "Preferred delivery time:"
+      textbox [ref=13, loc=css:input[name="delivery"]]
+        spinbutton "小时" [ref=14]
+          text "--"
+        text ":"
+        spinbutton "分钟" [ref=15]
+          text "--"
+    paragraph
+      text "Delivery instructions:"
+      textbox [ref=16, loc=css:textarea[name="comments"]]
+    paragraph
+      button [ref=17]
+        text "Submit order"
