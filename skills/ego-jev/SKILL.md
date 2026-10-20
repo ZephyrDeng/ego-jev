@@ -3,7 +3,7 @@ name: ego-jev
 description: "Jev (TypeSafe System One) inner loop for ego-browser — one ~0.4 s typed decision per DOM step instead of an LLM turn. Use for multi-step clicking through a semantic page: fill known values into a form, set filters, open a row/card/menu by name, reach a page via nav or site search. Escalates login, payment, free text and content reading back to you; canvas/icon targets only with opt-in screenshot mode."
 license: MIT
 metadata:
-  version: "0.5.0"
+  version: "0.5.1"
 ---
 
 # ego-jev
@@ -78,8 +78,9 @@ missing credentials. A mock decision does not verify the real Jev service.
    cookie 记录（`record`）？" Recording is off by default. On yes, pass
    `record: true` (request metadata + cookie metadata only) and add
    `headers` / `bodies` / `cookieValues` / `dir` only when the user asks for
-   them. Skip the question when the user already said yes or no, and reuse the
-   answer for later loops in the same task. Details, redaction and limits:
+   them. Skip the question when the user already said yes or no, or already
+   named the options for this run without `record` (record stays off); reuse
+   the answer for later loops in the same task. Details, redaction and limits:
    [`reference.md`](reference.md#record-opt-in).
 3. Create or resume the task's one TaskSpace following `ego-browser`; reuse
    the user's starting Page or navigate to their URL (`goto` with
@@ -113,6 +114,7 @@ missing credentials. A mock decision does not verify the real Jev service.
      pins, icon glyphs, image regions no ref/`dN` names), ego clicks the
      returned point with `page.mouse`; when that point lands inside a
      candidate's bounds, the click upgrades to the candidate's DOM locator.
+     An explicit click id moves only to a same-named element under the box.
      A shaky click id (below `minTargetConfidence`) with a confident box
      follows the box instead of escalating.
      Images under 280×280 escalate.
@@ -178,6 +180,9 @@ TaskSpace cleanup exactly once under `ego-browser`'s user ownership and
 - Collapsed menus and teleported dropdown options are not in the DOM until
   opened: click/hover the parent first, then enter the loop. `select` on a
   `dN` target escalates by design.
+- A search box's autocomplete dropdown can cover its submit button: the
+  click fails twice and escalates. Jev has no "press Enter"; finish with
+  `page.press(<field>, "Enter")` yourself.
 - Jev will click "Continue with Google" on a login page; keep login pages out
   of the loop or `handOff` first.
 - Semantic filtering ("not in the list → switch to All") is planner work; a

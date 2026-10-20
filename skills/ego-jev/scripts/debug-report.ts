@@ -3,8 +3,10 @@
 // overlays every candidate's bounds, the chosen target, Jev's locate box and
 // the click point on each shot, next to every question's answer and
 // probabilities. Rewritten after each step and auto-refreshing until the run
-// ends, so opening it mid-run shows decisions as they happen.
-import type { Answer, Answers, StepTiming, TraceEntry } from "./jev-loop.ts";
+// ends, so opening it mid-run shows decisions as they happen. Each step also
+// gets step-NN.request.json: the exact state + questions sent to Jev, with
+// image assets pointing at files, so a misbehaving step can be replayed.
+import type { Answer, Answers, AskAssets, StepTiming, TraceEntry } from "./jev-loop.ts";
 
 type Rect = { x: number; y: number; w: number; h: number };
 type Pt = { x: number; y: number };
@@ -13,6 +15,7 @@ export interface DebugStep {
   step: number;
   url: string;
   shot?: string;
+  request?: string;
   view?: { w: number; h: number };
   answers: Answers;
   entry: TraceEntry;
@@ -70,6 +73,7 @@ function stepHtml(s: DebugStep): string {
     e.ref != null && `ref <b>@${esc(e.ref)}</b> ${esc(e.name)}`,
     e.valueKey && `value <b>${esc(e.valueKey)}</b>`,
     e.retried && `retried → ${esc(e.retried)}`,
+    s.request && `<a href="${esc(s.request)}">request</a>`,
   ].filter(Boolean).join(" · ");
   const t = s.timing;
   const timing = (["snapshotMs", "domMs", "shotMs", "askMs", "actMs", "verifyMs", "stepMs"] as const)
@@ -100,6 +104,29 @@ table{border-collapse:collapse;font-size:12px}th{text-align:left;padding:3px 8px
 .p{color:#555}.noshot{width:240px;color:#999;padding:20px;border:1px dashed #ccc;line-height:1.4}
 .final{padding:6px 10px;border-radius:4px;font-weight:600}.done{background:#dcfce7}.running{background:#e0e7ff}.escalate,.blocked,.max_steps{background:#fee2e2}
 </style></head><body><h1>${esc(goal)}</h1>${banner}${steps.map(stepHtml).join("")}</body></html>`;
+}
+
+// Image bytes go to files, not the JSON, so the dump stays readable and
+// diffable. An unscaled PNG asset is the raw capture, so it reuses step-NN.png.
+export async function writeStepArtifacts(
+  dir: string, step: number,
+  req: { state: unknown; questions: unknown; assets?: AskAssets },
+  png?: Uint8Array | null,
+): Promise<{ shot?: string; request?: string }> {
+  const fs = await import("node:fs/promises");
+  const tag = `step-${String(step).padStart(2, "0")}`;
+  const out: { shot?: string; request?: string } = {};
+  if (png) { await fs.writeFile(`${dir}/${tag}.png`, png); out.shot = `${tag}.png`; }
+  const assets: Record<string, { type: "image"; format: string; file: string }> = {};
+  for (const [ref, a] of Object.entries(req.assets ?? {})) {
+    const reuse = a.image.format === "png" && out.shot;
+    const file = reuse ? out.shot! : `${tag}.sent.${a.image.format}`;
+    if (!reuse) await fs.writeFile(`${dir}/${file}`, Buffer.from(a.image.data_base64, "base64"));
+    assets[ref] = { type: "image", format: a.image.format, file };
+  }
+  await fs.writeFile(`${dir}/${tag}.request.json`, JSON.stringify({ state: req.state, questions: req.questions, assets }, null, 1));
+  out.request = `${tag}.request.json`;
+  return out;
 }
 
 export async function writeDebugReport(dir: string, goal: string, steps: DebugStep[], final?: DebugFinal): Promise<string> {

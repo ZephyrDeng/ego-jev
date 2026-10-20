@@ -1,0 +1,17 @@
+{
+ "goal": "用 google 搜索 jev 最新模型的介绍",
+ "values": {
+  "query": {
+   "value": "TypeSafe Jev latest model",
+   "hint": "Google search query"
+  }
+ },
+ "note": "empty Google home: fill the query into the search box",
+ "prior": [],
+ "expect": [
+  {
+   "type": "fill",
+   "sel": "@10"
+  }
+ ]
+}

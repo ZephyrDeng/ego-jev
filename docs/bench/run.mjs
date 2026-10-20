@@ -1,4 +1,6 @@
-const SKILL_DIR = process.env.SKILL_DIR || process.cwd() + "/skills/ego-jev";
+// ego runs scripts in / without the shell env: locate the repo from this file.
+const REPO = new URL("../..", import.meta.url).pathname;
+const SKILL_DIR = `${REPO}skills/ego-jev`;
 const fs = await import("node:fs/promises");
 const { preflightJev, runJevLoop, formatTimings } = await import(`file://${SKILL_DIR}/scripts/jev-loop.ts`);
 const ready = await preflightJev({});
@@ -17,7 +19,7 @@ const values = {
 const runs = [];
 for (let i = 0; i < 3; i++) {
   await page.goto("https://httpbin.org/forms/post", { waitUntil: "domcontentloaded" });
-  if (i === 0) await fs.writeFile("docs/bench/snapshot.txt", await page.snapshot());
+  if (i === 0) await fs.writeFile(`${REPO}docs/bench/snapshot.txt`, await page.snapshot());
   const t0 = Date.now();
   const result = await runJevLoop(page, {
     goal, values,
@@ -28,6 +30,6 @@ for (let i = 0; i < 3; i++) {
   runs.push({ i, status: result.status, verified: result.verified, steps: result.steps, wall, llmMs: result.timings.llmMs, llmCalls: result.timings.llmCalls.length, model: result.timings.model, askMs: result.timings.steps.map(s => s.askMs), stepMs: result.timings.steps.map(s => s.stepMs), usage: result.timings.llmCalls.map(c => c.usage) });
   if (i === 0) console.log(formatTimings(result));
 }
-await fs.writeFile("docs/bench/runs.json", JSON.stringify(runs, null, 1));
+await fs.writeFile(`${REPO}docs/bench/runs.json`, JSON.stringify(runs, null, 1));
 console.log(JSON.stringify(runs.map(r => ({ ...r, usage: undefined })), null, 1));
 await task.finish({ keep: [] });

@@ -315,3 +315,29 @@ describe("transient failure retries", () => {
     expect(page.click).not.toHaveBeenCalled();
   });
 });
+
+describe("model routing for images and box questions", () => {
+  const sent = async (q: Record<string, unknown>, assets?: Parameters<typeof askTypeSafe>[3]) => {
+    network.mockImplementation(async () => directResponse());
+    await askTypeSafe(state, q as never, { apiKey: "test-key" }, assets);
+    const [, init] = network.mock.calls.at(-1)!;
+    const headers = init!.headers as Record<string, string>;
+    const body = init!.body instanceof FormData
+      ? JSON.parse(await (init!.body.get("request") as Blob).text())
+      : JSON.parse(String(init!.body));
+    return { model: body.model, images: headers["TypeSafe-Danger-Zone-Images"] };
+  };
+  const shot = { s1: { image: { format: "png" as const, data_base64: "AAAA" } } };
+
+  it("given only text questions, then it stays on jev-latest with no images header", async () => {
+    expect(await sent(questions)).toEqual({ model: "jev-latest", images: undefined });
+  });
+
+  it("given an image but no box question, then it stays on jev-latest (1.13 reads images) with the images header", async () => {
+    expect(await sent(questions, shot)).toEqual({ model: "jev-latest", images: "true" });
+  });
+
+  it("given a box question, then it routes to jev-preview (box needs 1.14) with the images header", async () => {
+    expect(await sent({ ...questions, locate: { type: "box", instructions: "x" } }, shot)).toEqual({ model: "jev-preview", images: "true" });
+  });
+});

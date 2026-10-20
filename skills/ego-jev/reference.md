@@ -27,7 +27,9 @@ test/demo requests, never the default entry or a missing-key fallback.
 
 `npm test` runs Node regression tests with mocked Pages and model/network
 responses; `npm run typecheck` checks the TypeScript contract. They do not
-prove a live browser or real Jev service works.
+prove a live browser or real Jev service works. In the repository, the
+[decision eval](../../docs/bench/README.md#decision-eval) replays recorded
+pages against the real Jev and scores the loop's chosen action.
 
 For an explicitly requested browser mechanics demo, run from this skill's
 directory: `ego-browser nodejs < scripts/selftest.mjs`. The selftest injects
@@ -53,7 +55,7 @@ explicit test task.
 | `debugDir` | off | absolute dir; writes `step-NN.png` + `report.html` (see [Debug report](#debug-report)). Without `screenshot` it still captures shots and bounds for the report, but Jev's input does not change |
 | `maxElements` | 120 | candidate cap (a11y refs first, DOM `dN` fills the rest) |
 | `snapshotOptions` | viewport | e.g. `{scope:"full_page"}` or `{scope:"subtree", root:"@12"}`; empty viewport auto-falls back to `full_page` |
-| `screenshot` | off | `true` sends each step's viewport screenshot as a `state` image plus a speculative `box` locate question in the same call (Jev 1.14; the default model switches to `jev-preview` while images ride along; direct TypeSafe backend only — gateway drops assets and `box`). Viewports over 1200 px on the long side are downscaled to JPEG in-page; elements gain a `pos` (center, % of viewport) to tell same-named controls apart. An `unlabeled` click target clicks the located point via `page.mouse`; a click whose located point falls inside a candidate's bounds upgrades to that candidate's DOM locator (smallest hit wins). Fill/select never follow the box. Needs `TypeSafe-Danger-Zone-Images`; images <280px on a side escalate. Costs ~50–90 ms capture + ~1.8–2.6K image tokens per step |
+| `screenshot` | off | `true` sends each step's viewport screenshot as a `state` image plus a speculative `box` locate question in the same call (the `box` question needs Jev 1.14, so the default model switches to `jev-preview` while it rides along — Jev 1.13 reads images but has no `box`; direct TypeSafe backend only — gateway drops assets and `box`). Viewports over 1200 px on the long side are downscaled to JPEG in-page; elements gain a `pos` (center, % of viewport) to tell same-named controls apart. An `unlabeled` click target clicks the located point via `page.mouse`, or that candidate's DOM locator when the point falls inside its bounds (smallest hit wins). An explicit click id is re-pointed only onto a *same-named* candidate under the point (three "Edit" rows): the box marks what matches the goal, not what comes next, and on a filled search form it sits on the field while the next click is the submit button. Fill/select never follow the box. Needs `TypeSafe-Danger-Zone-Images`; images <280px on a side escalate. Costs ~50–90 ms capture + ~1.8–2.6K image tokens per step |
 | `minOpConfidence` / `minTargetConfidence` | 0.45 / 0.35 | below → escalate. Screenshot-mode exceptions: an `unlabeled` click skips the target gate, and a low-confidence click id with a visible locate box of confidence ≥0.5 follows the box instead of the id |
 | `doneThreshold` / `stuckThreshold` | 0.75 / 0.7 | noul triggers for done / blocked |
 | `guard` | pay/delete/upload/confirm regex (+ 中文) | matching targets escalate; `null` disables |
@@ -73,6 +75,13 @@ green for the chosen target, red dashed for Jev's `locate` box with a red dot
 at its center — next to every question's answer: choice, confidence and the
 top-5 probability bars, noul bars, the box, the action taken and phase timings.
 `result.report` is the report path. Page text is escaped before rendering.
+
+Each step also writes `step-NN.request.json`, linked from the report: the
+exact `state` and `questions` sent to Jev, with image `assets` pointing at the
+image files beside it (`step-NN.png`, or `step-NN.sent.jpg` when downscaled).
+It is written before the request, so a failing call is on disk too. When a
+step misbehaves in the loop but a hand-built request looks fine, diff against
+this file first.
 
 `result.trace[i].locate` (screenshot mode, report or not) records
 `{box, confidence, visible, point}`; `point` is the CSS-px click center, or
@@ -165,7 +174,7 @@ boxes toward containers. `result.url` and the trace keep the raw URL.
 
 | backend | endpoint | measured per step |
 | --- | --- | --- |
-| `typesafe` | `POST https://api.typesafe.ai/v1/systemone`, model `jev-latest` (`jev-preview` with screenshot) | 300–550 ms (20–120 elements); +~230–300 ms for a ~1050×940 screenshot (probe measurement) |
+| `typesafe` | `POST https://api.typesafe.ai/v1/systemone`, model `jev-latest` (`jev-preview` when a `box` question is asked) | 300–550 ms (20–120 elements); +~230–300 ms for a ~1050×940 screenshot (probe measurement) |
 | `gateway` | `POST https://ai-gateway.vercel.sh/v4/ai/evaluation-model`, model `typesafe-ai/jev` | 500–1500 ms, intermittent 503 |
 
 Browser-side cost is negligible (snapshot 8–18 ms, DOM walk ~1 ms); Jev

@@ -1,0 +1,16 @@
+{
+ "goal": "Click the 'Fire Torpedo' button drawn on the canvas",
+ "note": "canvas-drawn button next to a real DOM button; the click must land on the drawn button",
+ "prior": [],
+ "expect": [
+  {
+   "type": "mouse",
+   "in": {
+    "x": 45,
+    "y": 82,
+    "w": 160,
+    "h": 45
+   }
+  }
+ ]
+}

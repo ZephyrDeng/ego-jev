@@ -680,10 +680,15 @@ describe("runJevLoop visual debug report", () => {
       expect(seen.filter(Boolean).flat().filter(Boolean)).toEqual([]);
       expect(r.report).toBe(`${dir}/dbg/report.html`);
       expect(fs.existsSync(`${dir}/dbg/step-01.png`)).toBe(true);
+      const req = JSON.parse(fs.readFileSync(`${dir}/dbg/step-01.request.json`, "utf8"));
+      expect(req.state.goal).toBe("x");
+      expect(req.questions.op.type).toBe("choice");
+      expect(req.assets).toEqual({});
       const html = fs.readFileSync(r.report!, "utf8");
       expect(html).toContain("done — goal achieved");
       expect(html).not.toContain("http-equiv=\"refresh\"");
       expect(html).toContain('class="target"');
+      expect(html).toContain('href="step-01.request.json"');
       expect(html).not.toContain("<img src=x");
     });
   });
@@ -734,5 +739,47 @@ describe("runJevLoop low-confidence click with a locate box", () => {
     expect(r.status).toBe("escalate");
     expect(r.reason).toMatch(/low target confidence/);
     expect([...mouse, ...refs]).toEqual([]);
+  });
+});
+
+describe("runJevLoop locate box vs an explicit click id", () => {
+  const run = async (snap: string, bounds: unknown[]) => {
+    const fs = await import("node:fs");
+    const dir = fs.mkdtempSync("/tmp/ego-jev-explicit-");
+    const shot = `${dir}/shot.png`;
+    fs.writeFileSync(shot, fs.readFileSync(new URL("./fixture-800x600.png", import.meta.url)));
+    const refs: string[] = [];
+    const page = mockPage({ snapshot: async () => snap, click: async (sel: string) => { refs.push(sel); } });
+    page.screenshot = async () => shot;
+    page.evaluate = (async (_fn: unknown, arg: unknown) =>
+      (arg as { sels?: unknown[] } | undefined)?.sels ? { w: 800, h: 600, b64: null, bounds } : []) as Page["evaluate"];
+    const ask = scriptedAsk([
+      decide("click", {
+        target_click: { choice: "5", confidence: 0.6 },
+        locate_visible: { noul: 0.9 },
+        locate: { box: { top: 0.4, bottom: 0.6, left: 0.2, right: 0.4 }, confidence: 0.8 },
+      }),
+      decide("done"),
+    ]);
+    try {
+      await runJevLoop(page, { goal: "x", ask, screenshot: true, verifyRecheckMs: 0 });
+      return refs;
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  };
+
+  it("given Jev picks the search button but the box sits on the filled field, when clicking, then it clicks the button Jev chose", async () => {
+    // Google: box = textbox @2 (240,300 inside), Jev's pick = button @5 elsewhere.
+    expect(await run(SNAP, [{ x: 200, y: 260, w: 200, h: 80 }, { x: 500, y: 400, w: 80, h: 30 }])).toEqual(["@5"]);
+  });
+
+  it("given the box lands on another element with the same name, when clicking, then it re-points to that one", async () => {
+    const snap = `root
+  button [ref=3]
+    text "Edit"
+  button [ref=5]
+    text "Edit"`;
+    expect(await run(snap, [{ x: 200, y: 260, w: 80, h: 80 }, { x: 500, y: 400, w: 80, h: 30 }])).toEqual(["@3"]);
   });
 });

@@ -1,0 +1,77 @@
+{
+ "steps": [
+  {
+   "url": "data:text/html;charset=utf-8,%3C!doctype%20html%3E%3Chtml%3E%3Cbody%20style%3D%22font-family%3Asans-serif%3Bpadding%3A24px%22%3E%0A%20%20%3Ch3%3EPeople%3C%2Fh3%3E%0A%20%20%3Cdiv%3E%3Cspan%3EAlice%3C%2Fspan%3E%3Cbutton%3EEdit%3C%2Fbutton%3E%3C%2Fdiv%3E%0A%20%20%3Cdiv%3E%3Cspan%3EBob%3C%2Fspan%3E%3Cbutton%3EEdit%3C%2Fbutton%3E%3C%2Fdiv%3E%0A%20%20%3Cdiv%3E%3Cspan%3ECarol%3C%2Fspan%3E%3Cbutton%3EEdit%3C%2Fbutton%3E%3C%2Fdiv%3E%0A%3C%2Fbody%3E%3C%2Fhtml%3E",
+   "snapshot": "[p1 \"data:text/html;charset=utf-8,<!doctype html><html><body style%3D\\\"font-family%...\" | space \"ego-jev eval capture\"(3): 1 managed, 0 untracked — p1* \"data:text/html;charset=utf-8,<!doctype html><html><body style%3D\\\"font-family%...\"]\nroot\n  heading\n    text \"People\"\n  container\n    text \"Alice\"\n    button [ref=2]\n      text \"Edit\"\n  container\n    text \"Bob\"\n    button [ref=3]\n      text \"Edit\"\n  container\n    text \"Carol\"\n    button [ref=4]\n      text \"Edit\"\n",
+   "evaluate": {
+    "dom": [
+     {
+      "idx": 0,
+      "tag": "button",
+      "role": "",
+      "name": "Edit",
+      "rect": {
+       "x": 68,
+       "y": 97.9375,
+       "w": 38.9765625,
+       "h": 21.5
+      }
+     },
+     {
+      "idx": 1,
+      "tag": "button",
+      "role": "",
+      "name": "Edit",
+      "rect": {
+       "x": 61.5859375,
+       "y": 121.4375,
+       "w": 38.9765625,
+       "h": 21.5
+      }
+     },
+     {
+      "idx": 2,
+      "tag": "button",
+      "role": "",
+      "name": "Edit",
+      "rect": {
+       "x": 71.5703125,
+       "y": 144.9375,
+       "w": 38.9765625,
+       "h": 21.5
+      }
+     }
+    ],
+    "prep": {
+     "w": 1050,
+     "h": 939,
+     "b64": null,
+     "bounds": [
+      null,
+      null,
+      null,
+      {
+       "x": 68,
+       "y": 97.9375,
+       "w": 38.9765625,
+       "h": 21.5
+      },
+      {
+       "x": 61.5859375,
+       "y": 121.4375,
+       "w": 38.9765625,
+       "h": 21.5
+      },
+      {
+       "x": 71.5703125,
+       "y": 144.9375,
+       "w": 38.9765625,
+       "h": 21.5
+      }
+     ]
+    }
+   },
+   "shot": "step-1.png"
+  }
+ ]
+}

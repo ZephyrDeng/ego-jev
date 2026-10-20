@@ -3,7 +3,7 @@
 // No dependencies; `page` is an ego-browser Page object.
 
 import { normalizeRecord, createRecorder } from "./record.ts";
-import { writeDebugReport } from "./debug-report.ts";
+import { writeDebugReport, writeStepArtifacts } from "./debug-report.ts";
 import type { DebugStep, DebugFinal } from "./debug-report.ts";
 import type { RecordOptions, RecordResult } from "./record.ts";
 import type { Page, SnapshotOptions } from "./types.ts";
@@ -603,20 +603,22 @@ export const ASK_META = Symbol("ask-meta");
 // Default ask: TypeSafe System One REST. Override via options.ask for tests
 // or other backends. Returns the `answers` object. `assets` carries dreamer-
 // ready images (screenshots) as multipart file parts — measured ~30–60 ms
-// faster than base64-JSON and it doesn't inflate the JSON body. Any asset in
-// the request needs the TypeSafe-Danger-Zone-Images header and Jev 1.14, so
-// the default model switches to `jev-preview` while assets ride along.
+// faster than base64-JSON and it doesn't inflate the JSON body. Images and
+// Box questions need the TypeSafe-Danger-Zone-Images header; Jev 1.13 reads
+// images but Box needs 1.14, so the default model switches to `jev-preview`
+// while a Box question rides along (docs.typesafe.ai/go/box).
 export async function askTypeSafe(state: JevState, questions: Questions, opts: BackendOptions = {}, assets?: AskAssets): Promise<Answers> {
   const apiKey = await resolveKey(["TYPESAFE_API_KEY"], opts);
   if (!apiKey) throw new MissingCredentialError("typesafe");
   const headers: Record<string, string> = { authorization: `Bearer ${apiKey}` };
-  const model = opts.model ?? (assets ? "jev-preview" : "jev-latest");
+  const hasBox = Object.values(questions).some((q) => q.type === "box");
+  const model = opts.model ?? (hasBox ? "jev-preview" : "jev-latest");
+  if (assets || hasBox) headers["TypeSafe-Danger-Zone-Images"] = "true";
   let body: BodyInit;
   if (!assets) {
     headers["content-type"] = "application/json";
     body = JSON.stringify({ state, model, questions });
   } else {
-    headers["TypeSafe-Danger-Zone-Images"] = "true";
     const assetMeta = Object.fromEntries(
       Object.entries(assets).map(([ref], i) => [ref, { type: "image", part: `img${i}` }]),
     );
@@ -769,7 +771,7 @@ export function makeAsk(opts: BackendOptions = {}): Ask {
     model:
       resolved === "gateway"
         ? opts.model ?? "typesafe-ai/jev"
-        : opts.model ?? "jev-latest|jev-preview", // assets pick jev-preview per call
+        : opts.model ?? "jev-latest|jev-preview", // box questions pick jev-preview per call
   });
   return ask;
 }
@@ -883,7 +885,9 @@ export async function runJevLoop(page: Page, options: RunOptions): Promise<RunRe
   const loopStart = performance.now();
   const deadlineAt = loopStart + deadlineMs;
   const deadlineReason = `timeout: run exceeded deadlineMs=${deadlineMs}`;
-  const overDeadline = () => performance.now() >= deadlineAt;
+  // Slack: Node schedules timers off a cached loop clock, so a deadline-capped
+  // timer can fire a few ms before performance.now() reaches the deadline.
+  const overDeadline = (slackMs = 0) => performance.now() + slackMs >= deadlineAt;
   // Per-op budget never outlives the run deadline.
   const budget = (ms = pageTimeoutMs) => Math.max(1, Math.min(ms, deadlineAt - performance.now()));
   const debugSteps: DebugStep[] = [];
@@ -1020,7 +1024,7 @@ export async function runJevLoop(page: Page, options: RunOptions): Promise<RunRe
     try {
       snapshot = await bounded(page.snapshot(snapshotOptions), budget(), "snapshot");
     } catch (e) {
-      return finish("escalate", overDeadline() ? deadlineReason : `snapshot failed: ${errMsg(e).slice(0, 120)}`);
+      return finish("escalate", overDeadline(25) ? deadlineReason : `snapshot failed: ${errMsg(e).slice(0, 120)}`);
     }
     st.snapshotMs = Math.round(performance.now() - phase);
     phase = performance.now();
@@ -1031,7 +1035,7 @@ export async function runJevLoop(page: Page, options: RunOptions): Promise<RunRe
       try {
         snapshot = await bounded(page.snapshot({ ...snapshotOptions, scope: "full_page" }), budget(), "snapshot");
       } catch (e) {
-        return finish("escalate", overDeadline() ? deadlineReason : `snapshot failed: ${errMsg(e).slice(0, 120)}`);
+        return finish("escalate", overDeadline(25) ? deadlineReason : `snapshot failed: ${errMsg(e).slice(0, 120)}`);
       }
       st.snapshotMs += Math.round(performance.now() - phase);
       phase = performance.now();
@@ -1166,12 +1170,16 @@ export async function runJevLoop(page: Page, options: RunOptions): Promise<RunRe
       history: history.slice(-12),
     };
     const questions = buildQuestions(candidates, values, { screenshot: Boolean(shotRef), view: shotDim });
+    // Written before the ask so a failing request is still on disk to replay.
+    const debugFiles = debugDir
+      ? await writeStepArtifacts(debugDir, step, { state, questions, assets: shotAssets }, debugView ? png : null).catch(() => ({}))
+      : {};
     let answers;
     try {
       answers = await timedAsk(state, questions, "decide", shotAssets);
     } catch (askErr) {
       if (askErr instanceof MissingCredentialError) return finish("escalate", askErr.message);
-      if (overDeadline()) return finish("escalate", deadlineReason);
+      if (overDeadline(25)) return finish("escalate", deadlineReason);
       // transient backend hiccup (gateway 5xx, timeout): retry once
       await page.waitForTimeout(800).catch(() => {});
       try {
@@ -1185,18 +1193,10 @@ export async function runJevLoop(page: Page, options: RunOptions): Promise<RunRe
     trace.push(entry);
     st.op = op.choice;
     const dbg: DebugStep | null = debugDir ? {
-      step, url: state.url, answers, entry, timing: st, view: debugView,
+      step, url: state.url, answers, entry, timing: st, view: debugView, ...debugFiles,
       candidates: candidates.map((c) => ({ ref: c.ref, role: c.role, name: c.name?.slice(0, 80), bounds: c.bounds })),
     } : null;
-    if (dbg) {
-      debugSteps.push(dbg);
-      if (png && debugView) {
-        const name = `step-${String(step).padStart(2, "0")}.png`;
-        await import("node:fs/promises")
-          .then(async (fs) => { await fs.writeFile(`${debugDir}/${name}`, png); dbg.shot = name; })
-          .catch(() => {});
-      }
-    }
+    if (dbg) debugSteps.push(dbg);
 
     if ((answers.stuck?.noul ?? 0) >= stuckThreshold) return finish("blocked", "jev reports stuck");
     if (op.choice === "done" || op.choice === "escalate" || (answers.done?.noul ?? 0) >= doneThreshold) {
@@ -1336,25 +1336,26 @@ export async function runJevLoop(page: Page, options: RunOptions): Promise<RunRe
       }
       // Locate upgrade applies ONLY to click — fill and select already have
       // an explicit candidate ref; a stray box must not silently redirect a
-      // value into the wrong control. For click it upgrades unlabeled picks
-      // (which set pointTarget) and low-confidence ref guesses alike.
-      if (act === "click") {
+      // value into the wrong control. Unlabeled picks were already resolved
+      // above; an explicit id is only re-pointed onto a *same-named* element
+      // (three "Edit" rows). The box answers "what matches the goal", not
+      // "what's next": on Google it keeps boxing the filled search field
+      // while Jev correctly picks the search button.
+      const sameName = (a: Candidate, b: Candidate) =>
+        Boolean(a.name) && a.name.trim().toLowerCase() === b.name.trim().toLowerCase();
+      if (act === "click" && target) {
         const pt = pointTarget ?? locatedPoint();
         if (pt) {
           const hit = candidateAtPoint(pt);
-          if (hit) {
+          if (hit && hit !== target && sameName(hit, target)) {
             if (guard && guard.test(`${hit.role} ${hit.name}`)) {
               return finish("escalate", `guarded target "${elementLine(hit)}"`);
             }
-            if (target !== hit) {
-              pointTarget = null;
-              ref = hit.ref;
-              target = hit;
-              entry.ref = ref;
-              entry.name = `${hit.name || hit.role} (locate-verified)`;
-              if (entry.target === "unlabeled") entry.target = String(hit.ref);
-              history.push(`locate upgraded click target to @${hit.ref}`);
-            }
+            ref = hit.ref;
+            target = hit;
+            entry.ref = ref;
+            entry.name = `${hit.name} (locate-verified)`;
+            history.push(`locate re-pointed click to same-named @${hit.ref}`);
           }
         }
       }

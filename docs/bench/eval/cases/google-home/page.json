@@ -1,0 +1,338 @@
+{
+ "steps": [
+  {
+   "url": "https://www.google.com/",
+   "snapshot": "[p1 \"Google\" | space \"ego-jev eval capture\"(3): 1 managed, 0 untracked — p1* \"Google\"]\nroot\n  container\n    navigation\n      container\n        container\n          anchor \"Gmail\" [ref=5, loc=css:a[aria-label=\"Gmail \"], url=https://mail.google.com/mail/&ogbl]\n            text \"Gmail\"\n          anchor \"搜索图片\" [ref=6, loc=css:a[aria-label=\"搜索图片 \"], url=https://www.google.com/imghp?hl=zh-CN&ogbl]\n            text \"图片\"\n        button \"Google 应用\" [ref=7, loc=css:a[aria-label=\"Google 应用\"], url=https://www.google.com.sg/intl/zh-CN/about/products]\n          svg_root\n        anchor \"登录\" [ref=8, loc=css:a[aria-label=\"登录\"], url=https://accounts.google.com/ServiceLogin?hl=zh-CN&passive=true&continue=https://www.google.com/&ec=futura_exp_og_so_72776762_e]\n          text \"登录\"\n    image \"Google\"\n    search\n      container\n        button \"添加文件和工具\" [ref=9, loc=css:button[aria-label=\"添加文件和工具\"]]\n          svg_root\n        comboboxgrouping \"搜索\" [ref=10, loc=css:textarea[name=\"q\"]]\n        container\n          container\n            button \"按语音搜索\" [ref=11, loc=role:button[name=\"按语音搜索\"]]\n              svg_root\n            button \"按图搜索\" [ref=12, loc=role:button[name=\"按图搜索\"]]\n              svg_root\n          link [ref=13]\n            container\n              svg_root\n              text \"AI 模式\"\n      container\n        button \"Google 搜索\" [ref=14]\n          text \"Google 搜索\"\n        button \" 手气不错 \" [ref=15]\n          text \" 手气不错 \"\n    container\n      text \"Google 提供：\"\n      anchor [ref=16, url=https://www.google.com/setprefs?sig=redacted&hl=en&source=homepage&sa=X&ved=redacted\n        text \"English\"\n      anchor [ref=17, url=https://www.google.com/setprefs?sig=redacted&hl=ms&source=homepage&sa=X&ved=redacted\n        text \"Bahasa Melayu\"\n      anchor [ref=18, url=https://www.google.com/setprefs?sig=redacted&hl=ta&source=homepage&sa=X&ved=redacted\n        text \"தமிழ்\"\n    contentinfo\n      text \"新加坡\"\n      container\n        container\n          anchor [ref=19, url=https://about.google/?utm_source=google-SG&utm_medium=referral&utm_campaign=hp-footer&fg=1]\n            text \"关于 Google\"\n          anchor [ref=20, url=https://www.google.com/intl/zh-CN_sg/ads/?subid=ww-ww-et-g-awa-a-g_hpafoot1_1!o2&utm_source=google.com&utm_medium=referral&utm_campaign=google_hpafooter&fg=1]\n            text \"广告\"\n          anchor [ref=21, url=https://www.google.com/services/?subid=ww-ww-et-g-awa-a-g_hpbfoot1_1!o2&utm_source=google.com&utm_medium=referral&utm_campaign=google_hpbfooter&fg=1]\n            text \"商务\"\n          anchor [ref=22, loc=href:https://google.com/search/howsearchworks/?fg=1, url=https://google.com/search/howsearchworks/?fg=1]\n            text \"Google 搜索的运作方式\"\n        container\n          anchor [ref=23, loc=href:https://policies.google.com/privacy?hl=zh-CN&fg=1, url=https://policies.google.com/privacy?hl=zh-CN&fg=1]\n            text \"隐私权\"\n          anchor [ref=24, loc=href:https://policies.google.com/terms?hl=zh-CN&fg=1, url=https://policies.google.com/terms?hl=zh-CN&fg=1]\n            text \"条款\"\n          button [ref=25]\n            text \"设置\"\n",
+   "evaluate": {
+    "dom": [
+     {
+      "idx": 0,
+      "tag": "svg",
+      "role": "",
+      "name": "svg.[object.SVGAnimatedString]",
+      "rect": {
+       "x": 915,
+       "y": 16.25,
+       "w": 24,
+       "h": 24
+      }
+     },
+     {
+      "idx": 1,
+      "tag": "span",
+      "role": "",
+      "name": "span.wPSZBe",
+      "rect": {
+       "x": 194,
+       "y": 390,
+       "w": 24,
+       "h": 24
+      }
+     },
+     {
+      "idx": 2,
+      "tag": "div",
+      "role": "button",
+      "name": "按语音搜索",
+      "rect": {
+       "x": 682.8828125,
+       "y": 390,
+       "w": 40,
+       "h": 24
+      }
+     },
+     {
+      "idx": 3,
+      "tag": "div",
+      "role": "button",
+      "name": "按图搜索",
+      "rect": {
+       "x": 722.8828125,
+       "y": 390,
+       "w": 40,
+       "h": 24
+      }
+     },
+     {
+      "idx": 4,
+      "tag": "button",
+      "role": "link",
+      "name": "AI 模式",
+      "rect": {
+       "x": 770.8828125,
+       "y": 384,
+       "w": 89.1171875,
+       "h": 36
+      }
+     },
+     {
+      "idx": 5,
+      "tag": "input",
+      "role": "button",
+      "name": "Google 搜索",
+      "rect": {
+       "x": 414.640625,
+       "y": 457,
+       "w": 111.0390625,
+       "h": 36
+      }
+     },
+     {
+      "idx": 6,
+      "tag": "input",
+      "role": "",
+      "name": "手气不错",
+      "rect": {
+       "x": 537.5703125,
+       "y": 457,
+       "w": 97.78125,
+       "h": 36
+      }
+     },
+     {
+      "idx": 7,
+      "tag": "a",
+      "role": "",
+      "name": "English",
+      "rect": {
+       "x": 485.1796875,
+       "y": 542.5,
+       "w": 42.640625,
+       "h": 15
+      }
+     },
+     {
+      "idx": 8,
+      "tag": "a",
+      "role": "",
+      "name": "Bahasa Melayu",
+      "rect": {
+       "x": 531.4375,
+       "y": 542.5,
+       "w": 89.6171875,
+       "h": 15
+      }
+     },
+     {
+      "idx": 9,
+      "tag": "a",
+      "role": "",
+      "name": "தமிழ்",
+      "rect": {
+       "x": 624.671875,
+       "y": 542.5,
+       "w": 28.296875,
+       "h": 15
+      }
+     },
+     {
+      "idx": 10,
+      "tag": "a",
+      "role": "",
+      "name": "关于 Google",
+      "rect": {
+       "x": 160.640625,
+       "y": 889,
+       "w": 107.0390625,
+       "h": 50
+      }
+     },
+     {
+      "idx": 11,
+      "tag": "a",
+      "role": "",
+      "name": "广告",
+      "rect": {
+       "x": 267.6796875,
+       "y": 889,
+       "w": 58,
+       "h": 50
+      }
+     },
+     {
+      "idx": 12,
+      "tag": "a",
+      "role": "",
+      "name": "商务",
+      "rect": {
+       "x": 325.6796875,
+       "y": 889,
+       "w": 58,
+       "h": 50
+      }
+     },
+     {
+      "idx": 13,
+      "tag": "div",
+      "role": "button",
+      "name": "设置",
+      "rect": {
+       "x": 831.359375,
+       "y": 889,
+       "w": 58,
+       "h": 50
+      }
+     }
+    ],
+    "prep": {
+     "w": 1050,
+     "h": 939,
+     "b64": null,
+     "bounds": [
+      {
+       "x": 817.046875,
+       "y": 16.25,
+       "w": 33.953125,
+       "h": 24
+      },
+      {
+       "x": 866,
+       "y": 16.25,
+       "w": 26,
+       "h": 24
+      },
+      {
+       "x": 907,
+       "y": 8.25,
+       "w": 40,
+       "h": 40
+      },
+      {
+       "x": 955,
+       "y": 8.25,
+       "w": 85,
+       "h": 40
+      },
+      {
+       "x": 188,
+       "y": 384,
+       "w": 36,
+       "h": 36
+      },
+      {
+       "x": 230,
+       "y": 377,
+       "w": 452.8828125,
+       "h": 50
+      },
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      {
+       "x": 383.6796875,
+       "y": 889,
+       "w": 177.0390625,
+       "h": 50
+      },
+      {
+       "x": 701.359375,
+       "y": 889,
+       "w": 72,
+       "h": 50
+      },
+      {
+       "x": 773.359375,
+       "y": 889,
+       "w": 58,
+       "h": 50
+      },
+      null,
+      {
+       "x": 915,
+       "y": 16.25,
+       "w": 24,
+       "h": 24
+      },
+      {
+       "x": 194,
+       "y": 390,
+       "w": 24,
+       "h": 24
+      },
+      {
+       "x": 682.8828125,
+       "y": 390,
+       "w": 40,
+       "h": 24
+      },
+      {
+       "x": 722.8828125,
+       "y": 390,
+       "w": 40,
+       "h": 24
+      },
+      {
+       "x": 770.8828125,
+       "y": 384,
+       "w": 89.1171875,
+       "h": 36
+      },
+      {
+       "x": 414.640625,
+       "y": 457,
+       "w": 111.0390625,
+       "h": 36
+      },
+      {
+       "x": 537.5703125,
+       "y": 457,
+       "w": 97.78125,
+       "h": 36
+      },
+      {
+       "x": 485.1796875,
+       "y": 542.5,
+       "w": 42.640625,
+       "h": 15
+      },
+      {
+       "x": 531.4375,
+       "y": 542.5,
+       "w": 89.6171875,
+       "h": 15
+      },
+      {
+       "x": 624.671875,
+       "y": 542.5,
+       "w": 28.296875,
+       "h": 15
+      },
+      {
+       "x": 160.640625,
+       "y": 889,
+       "w": 107.0390625,
+       "h": 50
+      },
+      {
+       "x": 267.6796875,
+       "y": 889,
+       "w": 58,
+       "h": 50
+      },
+      {
+       "x": 325.6796875,
+       "y": 889,
+       "w": 58,
+       "h": 50
+      },
+      {
+       "x": 831.359375,
+       "y": 889,
+       "w": 58,
+       "h": 50
+      }
+     ]
+    }
+   },
+   "shot": "step-1.png"
+  }
+ ]
+}

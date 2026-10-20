@@ -1,0 +1,47 @@
+{
+  "goal": "用 google 搜索 jev 最新模型的介绍",
+  "values": {
+    "query": {
+      "value": "TypeSafe Jev latest model",
+      "hint": "Google search query"
+    }
+  },
+  "note": "v0.5.0 bug: the locate box sat on the filled field and hijacked the search-button click",
+  "prior": [
+    {
+      "op": {
+        "choice": "fill",
+        "confidence": 1
+      },
+      "target_fill": {
+        "choice": "31",
+        "confidence": 1
+      },
+      "done": {
+        "noul": 0
+      },
+      "stuck": {
+        "noul": 0
+      }
+    }
+  ],
+  "expect": [
+    {
+      "type": "click",
+      "sel": "@35"
+    },
+    {
+      "type": "click",
+      "sel": "loc=css:[data-ego-jev=\"4\"]"
+    },
+    {
+      "type": "mouse",
+      "in": {
+        "x": 414,
+        "y": 457,
+        "w": 112,
+        "h": 36
+      }
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+ "goal": "Click the Edit button next to Carol",
+ "note": "three same-named Edit buttons; only Carol's is right",
+ "prior": [],
+ "expect": [
+  {
+   "type": "click",
+   "sel": "@4"
+  },
+  {
+   "type": "click",
+   "sel": "loc=css:[data-ego-jev=\"2\"]"
+  },
+  {
+   "type": "mouse",
+   "in": {
+    "x": 71,
+    "y": 144,
+    "w": 40,
+    "h": 23
+   }
+  }
+ ]
+}

@@ -1,0 +1,39 @@
+{
+ "steps": [
+  {
+   "url": "data:text/html;charset=utf-8,%3C!doctype%20html%3E%3Chtml%3E%3Cbody%20style%3D%22font-family%3Asans-serif%3Bpadding%3A24px%3Bmargin%3A0%22%3E%0A%20%20%3Cbutton%3EReal%20DOM%20button%3C%2Fbutton%3E%0A%20%20%3Cdiv%20style%3D%22margin-top%3A16px%22%3E%3Ccanvas%20id%3D%22cv%22%20width%3D%22400%22%20height%3D%2280%22%20style%3D%22border%3A1px%20solid%20%23ccc%22%3E%3C%2Fcanvas%3E%3C%2Fdiv%3E%0A%20%20%3Cscript%3Econst%20cv%3Ddocument.getElementById(%22cv%22)%2Cc%3Dcv.getContext(%222d%22)%3Bc.fillStyle%3D%22%2310b981%22%3Bc.fillRect(20%2C18%2C160%2C44)%3Bc.fillStyle%3D%22%23fff%22%3Bc.font%3D%22bold%2015px%20sans-serif%22%3Bc.fillText(%22Fire%20Torpedo%22%2C45%2C46)%3B%3C%2Fscript%3E%0A%3C%2Fbody%3E%3C%2Fhtml%3E",
+   "snapshot": "[p1 \"data:text/html;charset=utf-8,<!doctype html><html><body style%3D\\\"font-family%...\" | space \"ego-jev eval capture\"(4): 1 managed, 0 untracked — p1* \"data:text/html;charset=utf-8,<!doctype html><html><body style%3D\\\"font-family%...\"]\nroot\n  button [ref=1]\n    text \"Real DOM button\"\n  canvas\n",
+   "evaluate": {
+    "dom": [
+     {
+      "idx": 0,
+      "tag": "button",
+      "role": "",
+      "name": "Real DOM button",
+      "rect": {
+       "x": 24,
+       "y": 26,
+       "w": 118.984375,
+       "h": 21.5
+      }
+     }
+    ],
+    "prep": {
+     "w": 1050,
+     "h": 939,
+     "b64": null,
+     "bounds": [
+      null,
+      {
+       "x": 24,
+       "y": 26,
+       "w": 118.984375,
+       "h": 21.5
+      }
+     ]
+    }
+   },
+   "shot": "step-1.png"
+  }
+ ]
+}
