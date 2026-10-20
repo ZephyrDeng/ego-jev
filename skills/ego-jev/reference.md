@@ -16,6 +16,7 @@ gate changes; `scripts/selftest.mjs` stays plain JS because it is piped to
 | --- | --- |
 | `scripts/jev-loop.ts` | loop, snapshot parsing, questions, backends, timings |
 | `scripts/record.ts` | opt-in network/cookie recorder |
+| `scripts/debug-report.ts` | opt-in visual decision report (`debugDir`) |
 | `scripts/types.ts` | `Page` (the ego-browser subset in use) and CDP event types |
 
 ## Maintenance tests
@@ -47,9 +48,13 @@ explicit test task.
 | `verify` | — | `async (page) => bool`, run when Jev claims done; false → loop continues |
 | `verifyRecheckMs` | 400 | grace wait before re-running a failed `verify` once in the same step — absorbs "done claimed while navigation still commits"; `0` disables |
 | `maxSteps` | 20 | loop bound |
+| `deadlineMs` | 120000 | whole-run wall clock; checked each step and caps every page op and Jev call — past it the run escalates with `reason` `timeout: run exceeded deadlineMs=…` |
+| `pageTimeoutMs` | 15000 | cap per page op (snapshot, screenshot, evaluate, the whole action). ego page ops have no timeout and cannot be cancelled: a timed-out op keeps running in the page while the loop moves on. A hung snapshot escalates; a hung action counts as an action error (two → escalate) |
+| `debugDir` | off | absolute dir; writes `step-NN.png` + `report.html` (see [Debug report](#debug-report)). Without `screenshot` it still captures shots and bounds for the report, but Jev's input does not change |
 | `maxElements` | 120 | candidate cap (a11y refs first, DOM `dN` fills the rest) |
 | `snapshotOptions` | viewport | e.g. `{scope:"full_page"}` or `{scope:"subtree", root:"@12"}`; empty viewport auto-falls back to `full_page` |
-| `minOpConfidence` / `minTargetConfidence` | 0.45 / 0.35 | below → escalate |
+| `screenshot` | off | `true` sends each step's viewport screenshot as a `state` image plus a speculative `box` locate question in the same call (Jev 1.14; the default model switches to `jev-preview` while images ride along; direct TypeSafe backend only — gateway drops assets and `box`). Viewports over 1200 px on the long side are downscaled to JPEG in-page; elements gain a `pos` (center, % of viewport) to tell same-named controls apart. An `unlabeled` click target clicks the located point via `page.mouse`; a click whose located point falls inside a candidate's bounds upgrades to that candidate's DOM locator (smallest hit wins). Fill/select never follow the box. Needs `TypeSafe-Danger-Zone-Images`; images <280px on a side escalate. Costs ~50–90 ms capture + ~1.8–2.6K image tokens per step |
+| `minOpConfidence` / `minTargetConfidence` | 0.45 / 0.35 | below → escalate. Screenshot-mode exceptions: an `unlabeled` click skips the target gate, and a low-confidence click id with a visible locate box of confidence ≥0.5 follows the box instead of the id |
 | `doneThreshold` / `stuckThreshold` | 0.75 / 0.7 | noul triggers for done / blocked |
 | `guard` | pay/delete/upload/confirm regex (+ 中文) | matching targets escalate; `null` disables |
 | `backend` | `"auto"` | `"typesafe"` or `"gateway"` to force one |
@@ -57,6 +62,21 @@ explicit test task.
 | `apiKey`, `baseUrl`, `gatewayBaseUrl`, `model`, `timeout` | — | backend overrides |
 | `record` | off | `true` or an object, see [Record](#record-opt-in) |
 | `planner` | env-detected | who drives the loop — pass `"harness/model"` (e.g. `"devin/swe-2-high"`) or `{agent, model}`; defaults to env markers (`AI_AGENT`, `CLAUDECODE`, `CODEX_HOME`, …) which only identify the harness, not its model |
+
+## Debug report
+
+`debugDir` makes each decision visible. After every step the loop rewrites
+`report.html`; it auto-refreshes every 2 s until the run ends, so it can be
+open while the loop runs. Per step it shows the viewport screenshot with
+overlays — blue outlines for every candidate's bounds (hover for ref/role/name),
+green for the chosen target, red dashed for Jev's `locate` box with a red dot
+at its center — next to every question's answer: choice, confidence and the
+top-5 probability bars, noul bars, the box, the action taken and phase timings.
+`result.report` is the report path. Page text is escaped before rendering.
+
+`result.trace[i].locate` (screenshot mode, report or not) records
+`{box, confidence, visible, point}`; `point` is the CSS-px click center, or
+`null` when `locate_visible` was under 0.5.
 
 ## Timings
 
@@ -69,7 +89,7 @@ Every result carries `result.timings`, on all exit paths:
 | `timings.tokens` | summed `{input, output}` tokens across calls, when the backend reports `usage` |
 | `timings.planner` | the driving agent — `options.planner` verbatim, else the env-detected harness (model unknown unless passed) |
 | `timings.llmMs` / `timings.llmCalls` | summed Jev latency and one `{seq, step, kind, ms, ok, model, backend, usage}` per request — `kind` is `decide`, `decide-retry` or `option_retry` |
-| `timings.steps` | per-step `{step, op, snapshotMs, domMs, askMs, actMs, verifyMs, stepMs}` (`askMs` sums that step's calls) |
+| `timings.steps` | per-step `{step, op, snapshotMs, domMs, shotMs, askMs, actMs, verifyMs, stepMs}` (`askMs` sums that step's calls; `shotMs` appears only with `screenshot`) |
 
 Missing credentials in the built-in backend return the same `RunResult`
 structure with `status: "escalate"`, configuration guidance in `reason`,
@@ -134,9 +154,18 @@ cached for the run. Explicit `backend: "typesafe"` / `"gateway"` keeps that
 route. Gateway lookup retains the `TYPESAFE_API_KEY` fallback, preferring
 `AI_GATEWAY_API_KEY` within each lookup tier.
 
+`screenshot` needs the typesafe backend: requests go multipart (a JSON
+`request` part plus one binary part per image `asset`) with the
+`TypeSafe-Danger-Zone-Images: true` header. On the gateway path an
+asset-bearing call raises immediately (no request sent); injected `ask`
+functions receive the assets as a third argument and own their handling.
+`state.url` sent to Jev collapses `data:` / `javascript:` URLs to
+`data:…` / `javascript:…`: their payload is page source, and it biased locate
+boxes toward containers. `result.url` and the trace keep the raw URL.
+
 | backend | endpoint | measured per step |
 | --- | --- | --- |
-| `typesafe` | `POST https://api.typesafe.ai/v1/systemone`, model `jev-latest` | 300–550 ms (20–120 elements) |
+| `typesafe` | `POST https://api.typesafe.ai/v1/systemone`, model `jev-latest` (`jev-preview` with screenshot) | 300–550 ms (20–120 elements); +~230–300 ms for a ~1050×940 screenshot (probe measurement) |
 | `gateway` | `POST https://ai-gateway.vercel.sh/v4/ai/evaluation-model`, model `typesafe-ai/jev` | 500–1500 ms, intermittent 503 |
 
 Browser-side cost is negligible (snapshot 8–18 ms, DOM walk ~1 ms); Jev

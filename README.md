@@ -54,10 +54,18 @@ What it also does:
   XHR/fetch requests each step triggered plus a cookie before/after diff, with
   headers, bodies and cookie values off and query tokens redacted by default.
   The agent asks before the first run; off unless you say yes.
+- **Shows why it chose what it did.** Opt-in `debugDir` writes a live,
+  auto-refreshing `report.html`: each step's screenshot with candidate,
+  target and locate-box overlays next to every answer's probabilities.
+- **Never hangs.** A whole-run `deadlineMs` (120 s) and a per-operation
+  `pageTimeoutMs` (15 s) turn a stuck page or backend into an `escalate`
+  with a timeout reason.
 
-What it never does: Jev does not type free text, does not read screenshots,
-and does not touch login, payment or canvas. Those come back to the agent
-that called it.
+What it never does: Jev does not type free text and does not touch login,
+payment or captcha. It reads screenshots only when you opt in (`screenshot:
+true`, Jev 1.14+ on the direct TypeSafe backend), which lets it click
+unlabeled visual targets — canvas cells, map pins, icon glyphs — via a Box
+locate answer. Everything else comes back to the agent that called it.
 
 ## Demo
 
@@ -139,7 +147,9 @@ operation and target in one call, then ego executes it:
    ```
 
    Add `record: true` to also get `result.record` (requests per step, cookie
-   diff); see [Record](skills/ego-jev/reference.md#record-opt-in).
+   diff); see [Record](skills/ego-jev/reference.md#record-opt-in). Add
+   `screenshot: true` for canvas/icon targets, or `debugDir: "/abs/dir"` for a
+   visual decision report; see [Debug report](skills/ego-jev/reference.md#debug-report).
 
    `result.status` is `done`, `escalate`, `blocked` or `max_steps` — the loop
    fails loud and names the reason. Options, thresholds, backends and latency

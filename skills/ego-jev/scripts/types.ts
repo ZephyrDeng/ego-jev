@@ -23,6 +23,9 @@ export interface Page {
   waitForTimeout(ms: number): Promise<unknown>;
   mouse: { click(x: number, y: number, options?: { label?: string }): Promise<unknown> };
   keyboard: { insertText(text: string): Promise<unknown> };
+  // Screenshot options mirror ego-browser: absolute `path`; optional in this
+  // subset so non-vision Page implementations (tests, embeds) needn't stub it.
+  screenshot?(options?: { path?: string }): Promise<string>;
   cdp(method: string, params?: object): Promise<any>;
   events(): Promise<CdpEvent[]>;
 }

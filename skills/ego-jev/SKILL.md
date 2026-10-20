@@ -1,9 +1,9 @@
 ---
 name: ego-jev
-description: "Jev (TypeSafe System One) inner loop for ego-browser — one ~0.4 s typed decision per DOM step instead of an LLM turn. Use for multi-step clicking through a semantic page: fill known values into a form, set filters, open a row/card/menu by name, reach a page via nav or site search. Escalates login, payment, free text, canvas and content reading back to you."
+description: "Jev (TypeSafe System One) inner loop for ego-browser — one ~0.4 s typed decision per DOM step instead of an LLM turn. Use for multi-step clicking through a semantic page: fill known values into a form, set filters, open a row/card/menu by name, reach a page via nav or site search. Escalates login, payment, free text and content reading back to you; canvas/icon targets only with opt-in screenshot mode."
 license: MIT
 metadata:
-  version: "0.4.1"
+  version: "0.5.0"
 ---
 
 # ego-jev
@@ -12,7 +12,8 @@ ego executes; Jev decides. Each step: snapshot → number the interactive
 elements (a11y refs `@N` + DOM-discovered clickables `dN`: `div` cards,
 `cursor:pointer`, iframe/shadow content) → one System One call picks the
 operation and its target together → ego clicks/fills/selects. Jev never writes
-text and never sees a screenshot.
+text and never sees a screenshot by default; `screenshot: true` opts into the
+dreamer-ready image path below.
 
 Read `ego-browser` first for TaskSpace and Page rules; this skill only replaces
 the per-step "which element" judgment.
@@ -105,6 +106,23 @@ missing credentials. A mock decision does not verify the real Jev service.
    - `values`: Jev picks which key goes in which field by `hint`; a fill with
      no matching value escalates instead of inventing data. Site search needs
      a value too.
+   - `screenshot`: opt-in multimodal (Jev 1.14+, direct TypeSafe backend
+     only — the Vercel gateway does not pass images). Each step sends the
+     viewport PNG in `state` and asks a speculative Box locate question; when
+     Jev picks the synthetic `unlabeled` click target (canvas cells, map
+     pins, icon glyphs, image regions no ref/`dN` names), ego clicks the
+     returned point with `page.mouse`; when that point lands inside a
+     candidate's bounds, the click upgrades to the candidate's DOM locator.
+     A shaky click id (below `minTargetConfidence`) with a confident box
+     follows the box instead of escalating.
+     Images under 280×280 escalate.
+   - `debugDir`: absolute path. Writes `report.html`, a live, auto-refreshing
+     view of each step: the screenshot with candidate, target and locate-box
+     overlays next to every answer's probabilities. Give the user
+     `result.report` when they want to see why Jev chose what it did.
+   - `deadlineMs` (120 s) / `pageTimeoutMs` (15 s): the run and each page op
+     are time-bounded; a timeout escalates with a `timeout:` or `… timed out`
+     reason instead of hanging.
    - `verify`: test URL, dialog text or a DOM fact — the thing the goal is
      about. A verify on a heading passes early (link clicked, navigation not
      yet committed) and a verify blind to modals makes Jev loop past a done
@@ -116,7 +134,7 @@ missing credentials. A mock decision does not verify the real Jev service.
    | status | meaning | you |
    | --- | --- | --- |
    | `done` | Jev claims visible evidence; `verified` true when your verify passed | read the page and report |
-   | `escalate` | missing credentials, login/2FA, payment, upload, delete words, free text, low confidence, target missing, two action errors | `result.reason` names it; for missing credentials use step 1, `handOff` for login, or continue the user's goal with plain ego calls |
+   | `escalate` | missing credentials, login/2FA, payment, upload, delete words, free text, low confidence, target missing, two action errors, deadline/page timeout | `result.reason` names it; for missing credentials use step 1, `handOff` for login, or continue the user's goal with plain ego calls |
    | `blocked` | Jev reports stuck: dead end, nothing offered advances the goal | reason about the page yourself (e.g. the docs have no such page) |
    | `max_steps` | loop bound hit | inspect `result.trace` |
 

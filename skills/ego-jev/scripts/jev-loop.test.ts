@@ -240,6 +240,104 @@ describe("runJevLoop timings", () => {
       "decide",
     ]);
   });
+
+  it("given screenshot mode, when Jev picks the unlabeled click, then it clicks the box point with page.mouse", async () => {
+    let clicks: { x: number; y: number }[] = [];
+    const page = mockPage({ mouse: { click: async (x: number, y: number) => { clicks.push({ x, y }); } } });
+    // The bounds+downscale evaluate isn't browser real in vitest — stub it
+    // to report the raw png passthrough (scale 1) and no element bounds.
+    page.evaluate = (async (fn: unknown, arg: unknown) =>
+      (arg as { sels?: unknown[] } | undefined)?.sels
+        ? { w: 800, h: 600, b64: null, bounds: (arg as { sels: unknown[] }).sels.map(() => null) }
+        : []) as Page["evaluate"];
+    const answers = [
+      decide("click", {
+        target_click: { choice: "unlabeled", confidence: 0.9 },
+        locate_visible: { noul: 0.9 },
+        locate: { box: { top: 0.4, bottom: 0.6, left: 0.2, right: 0.4 } },
+      }),
+      decide("done"),
+    ];
+    let n = 0;
+    const ask: Ask = async (state, questions, assets) => {
+      expect(state.screenshot).toMatch(/^img[0-9a-f]+shot$/);
+      expect(questions.locate?.type).toBe("box");
+      expect(questions.target_click?.criteria?.unlabeled).toBeTruthy();
+      expect(assets?.[state.screenshot!]?.image?.format).toBe("png");
+      return answers[Math.min(n++, answers.length - 1)]!;
+    };
+    const fs = await import("node:fs");
+    const dir = fs.mkdtempSync("/tmp/ego-jev-shot-");
+    const shot = `${dir}/shot.png`;
+    fs.writeFileSync(shot, fs.readFileSync(new URL("./fixture-800x600.png", import.meta.url)));
+    page.screenshot = async () => shot;
+    try {
+      const r = await runJevLoop(page, { goal: "click the cell", ask, screenshot: true, verifyRecheckMs: 0 });
+      expect(r.status).toBe("done");
+      expect(clicks).toEqual([{ x: 240, y: 300 }]);
+      expect(r.trace![0].ref).toBe("point");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("given screenshot mode, when the locate box lands on a candidate, then the click upgrades to its DOM locator", async () => {
+    let refClicks: string[] = [];
+    let mouseClicks: { x: number; y: number }[] = [];
+    const page = mockPage({
+      click: async (sel: string) => { refClicks.push(sel); },
+      mouse: { click: async (x: number, y: number) => { mouseClicks.push({ x, y }); } },
+    });
+    page.evaluate = (async (fn: unknown, arg: unknown) =>
+      (arg as { sels?: unknown[] } | undefined)?.sels
+        ? { w: 800, h: 600, b64: null, bounds: [null, { x: 200, y: 260, w: 80, h: 80 }] }
+        : []) as Page["evaluate"];
+    const answers = [
+      decide("click", {
+        target_click: { choice: "unlabeled", confidence: 0.9 },
+        locate_visible: { noul: 0.9 },
+        locate: { box: { top: 0.4, bottom: 0.6, left: 0.2, right: 0.4 } },
+      }),
+      decide("done"),
+    ];
+    let n = 0;
+    const ask: Ask = async () => answers[Math.min(n++, answers.length - 1)]!;
+    const fs = await import("node:fs");
+    const dir = fs.mkdtempSync("/tmp/ego-jev-shot-");
+    const shot = `${dir}/shot.png`;
+    fs.writeFileSync(shot, fs.readFileSync(new URL("./fixture-800x600.png", import.meta.url)));
+    page.screenshot = async () => shot;
+    try {
+      const r = await runJevLoop(page, { goal: "x", ask, screenshot: true, verifyRecheckMs: 0 });
+      expect(r.status).toBe("done");
+      expect(refClicks).toEqual(["@5"]);
+      expect(mouseClicks).toEqual([]);
+      expect(r.trace![0].name).toContain("locate-verified");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("given screenshot mode on a tiny viewport, when the image is under 280px, then it escalates without asking", async () => {
+    const page = mockPage({ screenshot: async () => {
+      const dir = await import("node:fs").then((fs) => fs.mkdtempSync("/tmp/ego-jev-tiny-"));
+      const p = `${dir}/tiny.png`;
+      const png = Buffer.alloc(64);
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(png, 0);
+      Buffer.from([0, 0, 0, 0xc8]).copy(png, 16); // w=200
+      Buffer.from([0, 0, 0, 0xc8]).copy(png, 20); // h=200
+      await import("node:fs").then((fs) => fs.writeFileSync(p, png));
+      return p;
+    } });
+    let asked = 0;
+    const r = await runJevLoop(page, {
+      goal: "x", ask: async () => { asked++; return decide("done"); },
+      screenshot: true, verifyRecheckMs: 0,
+    });
+    expect(r.status).toBe("escalate");
+    expect(r.reason).toContain("280px");
+    expect(asked).toBe(0);
+  });
 });
 
 describe("parseSnapshot naming", () => {
@@ -500,5 +598,141 @@ describe("runJevLoop record across exit paths and steps", () => {
     const page = mockPage({ snapshot: async () => { snaps++; return SNAP; }, cdp: async () => ({}), events: async () => [] });
     await runJevLoop(page, { goal: "g", ask: scriptedAsk([decide("done")]), verify: async () => true, record: { network: false, cookies: false } });
     expect(snaps).toBe(1);
+  });
+});
+
+describe("runJevLoop timeouts", () => {
+  it("given a page action that never settles, when pageTimeoutMs passes, then the step fails and the loop escalates instead of hanging", async () => {
+    const page = mockPage({ click: () => new Promise(() => {}) });
+    const ask = scriptedAsk([decide("click", { target_click: { choice: "5", confidence: 0.9 } })]);
+    const r = await runJevLoop(page, { goal: "x", ask, pageTimeoutMs: 30 });
+    expect(r.status).toBe("escalate");
+    expect(r.reason).toMatch(/click action timed out/);
+  });
+
+  it("given a hung Jev backend, when deadlineMs passes, then the run escalates with a timeout reason", async () => {
+    const r = await runJevLoop(mockPage(), { goal: "x", ask: () => new Promise(() => {}), deadlineMs: 50 });
+    expect(r.status).toBe("escalate");
+    expect(r.reason).toMatch(/^timeout: run exceeded deadlineMs=50/);
+    expect(r.timings.totalMs).toBeLessThan(2000);
+  });
+
+  it("given a hung snapshot, when it times out, then the run escalates rather than throwing", async () => {
+    const r = await runJevLoop(mockPage({ snapshot: () => new Promise(() => {}) }), {
+      goal: "x", ask: scriptedAsk([decide("done")]), pageTimeoutMs: 30,
+    });
+    expect(r.status).toBe("escalate");
+    expect(r.reason).toMatch(/snapshot failed: snapshot timed out/);
+  });
+});
+
+describe("runJevLoop visual debug report", () => {
+  const withShot = async (fn: (dir: string, shot: string) => Promise<void>) => {
+    const fs = await import("node:fs");
+    const dir = fs.mkdtempSync("/tmp/ego-jev-dbg-");
+    const shot = `${dir}/shot.png`;
+    fs.writeFileSync(shot, fs.readFileSync(new URL("./fixture-800x600.png", import.meta.url)));
+    try { await fn(dir, shot); } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  };
+
+  it("given a downscaled screenshot, when Jev locates an unlabeled target, then the click maps box fractions onto CSS px with no scale factor", async () => {
+    await withShot(async (_dir, shot) => {
+      const clicks: { x: number; y: number }[] = [];
+      const page = mockPage({ mouse: { click: async (x: number, y: number) => { clicks.push({ x, y }); } } });
+      page.screenshot = async () => shot;
+      // In-page prep reports a 400×300 JPEG: Jev saw half-size pixels.
+      page.evaluate = (async (_fn: unknown, arg: unknown) =>
+        (arg as { sels?: unknown[] } | undefined)?.sels
+          ? { w: 400, h: 300, b64: "AAAA", bounds: (arg as { sels: unknown[] }).sels.map(() => null) }
+          : []) as Page["evaluate"];
+      const ask = scriptedAsk([
+        decide("click", {
+          target_click: { choice: "unlabeled", confidence: 0.9 },
+          locate_visible: { noul: 0.9 },
+          locate: { box: { top: 0.4, bottom: 0.6, left: 0.2, right: 0.4 } },
+        }),
+        decide("done"),
+      ]);
+      const r = await runJevLoop(page, { goal: "x", ask, screenshot: true, verifyRecheckMs: 0 });
+      expect(clicks).toEqual([{ x: 240, y: 300 }]);
+      expect(r.trace![0].locate?.point).toEqual({ x: 240, y: 300 });
+    });
+  });
+
+  it("given debugDir without screenshot mode, when the run ends, then it writes per-step shots and an escaped report while Jev never sees the image", async () => {
+    await withShot(async (dir, shot) => {
+      const fs = await import("node:fs");
+      const page = mockPage({ snapshot: async () => SNAP.replace('"Search"', '"<img src=x onerror=alert(1)>"') });
+      page.screenshot = async () => shot;
+      page.evaluate = (async (_fn: unknown, arg: unknown) =>
+        (arg as { sels?: unknown[] } | undefined)?.sels
+          ? { w: 800, h: 600, b64: null, bounds: [null, { x: 200, y: 260, w: 80, h: 40 }] }
+          : []) as Page["evaluate"];
+      const seen: unknown[] = [];
+      const answers = [decide("click", { target_click: { choice: "5", confidence: 0.9, probabilities: { "5": 0.9, none: 0.1 } } }), decide("done")];
+      let n = 0;
+      const ask: Ask = async (state, _q, assets) => {
+        seen.push(state.screenshot, assets, state.elements.map((e) => (e as { pos?: string }).pos));
+        return answers[Math.min(n++, 1)]!;
+      };
+      const r = await runJevLoop(page, { goal: "x", ask, debugDir: `${dir}/dbg`, verifyRecheckMs: 0 });
+      expect(r.status).toBe("done");
+      expect(seen.filter(Boolean).flat().filter(Boolean)).toEqual([]);
+      expect(r.report).toBe(`${dir}/dbg/report.html`);
+      expect(fs.existsSync(`${dir}/dbg/step-01.png`)).toBe(true);
+      const html = fs.readFileSync(r.report!, "utf8");
+      expect(html).toContain("done — goal achieved");
+      expect(html).not.toContain("http-equiv=\"refresh\"");
+      expect(html).toContain('class="target"');
+      expect(html).not.toContain("<img src=x");
+    });
+  });
+});
+
+describe("runJevLoop low-confidence click with a locate box", () => {
+  const run = async (locateConfidence: number) => {
+    const fs = await import("node:fs");
+    const dir = fs.mkdtempSync("/tmp/ego-jev-lowconf-");
+    const shot = `${dir}/shot.png`;
+    fs.writeFileSync(shot, fs.readFileSync(new URL("./fixture-800x600.png", import.meta.url)));
+    const mouse: { x: number; y: number }[] = [];
+    const refs: string[] = [];
+    const page = mockPage({
+      click: async (sel: string) => { refs.push(sel); },
+      mouse: { click: async (x: number, y: number) => { mouse.push({ x, y }); } },
+    });
+    page.screenshot = async () => shot;
+    page.evaluate = (async (_fn: unknown, arg: unknown) =>
+      (arg as { sels?: unknown[] } | undefined)?.sels
+        ? { w: 800, h: 600, b64: null, bounds: [null, { x: 20, y: 20, w: 60, h: 20 }] }
+        : []) as Page["evaluate"];
+    const ask = scriptedAsk([
+      decide("click", {
+        target_click: { choice: "5", confidence: 0.1 },
+        locate_visible: { noul: 0.9 },
+        locate: { box: { top: 0.4, bottom: 0.6, left: 0.2, right: 0.4 }, confidence: locateConfidence },
+      }),
+      decide("done"),
+    ]);
+    try {
+      const r = await runJevLoop(page, { goal: "x", ask, screenshot: true, verifyRecheckMs: 0 });
+      return { r, mouse, refs };
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  };
+
+  it("given a shaky id pick but a confident box off that element, when deciding, then it clicks the box point and never the shaky ref", async () => {
+    const { r, mouse, refs } = await run(0.9);
+    expect(r.status).toBe("done");
+    expect(mouse).toEqual([{ x: 240, y: 300 }]);
+    expect(refs).toEqual([]);
+  });
+
+  it("given a shaky id pick and a weak box, when deciding, then it still escalates on low target confidence", async () => {
+    const { r, mouse, refs } = await run(0.3);
+    expect(r.status).toBe("escalate");
+    expect(r.reason).toMatch(/low target confidence/);
+    expect([...mouse, ...refs]).toEqual([]);
   });
 });
