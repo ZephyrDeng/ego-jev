@@ -181,9 +181,10 @@ See [maintenance test boundaries](skills/ego-jev/reference.md#maintenance-tests)
 ## FAQ
 
 **Do I need anything besides ego lite?**
-The `ego-browser` agent skill, which you already have if your agent drives
-ego lite, plus one key. ego-jev only replaces the per-step "which element"
-judgment.
+One key, and the `ego-browser` skill installed. Your agent loads ego-jev
+instead of it: ego-jev starts by running `ego-browser skill`, the guide that
+skill points to, and replaces only the per-step "which element" judgment.
+Reading, extraction, screenshots and login stay plain ego calls.
 
 **Does it work on a browser other than ego lite?**
 No. It drives ego-browser's TaskSpace/Page API. For a standalone browser

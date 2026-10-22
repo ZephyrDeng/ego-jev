@@ -1,9 +1,9 @@
 ---
 name: ego-jev
-description: "Jev (TypeSafe System One) inner loop for ego-browser — one ~0.4 s typed decision per DOM step instead of an LLM turn. Use for multi-step clicking through a semantic page: fill known values into a form, set filters, open a row/card/menu by name, reach a page via nav or site search. Escalates login, payment, free text and content reading back to you; canvas/icon targets only with opt-in screenshot mode."
+description: "Entry point for every browser task in ego (ego lite, ego-browser) — load this instead of the `ego-browser` skill: it starts by running `ego-browser skill`, the guide that skill points to. Multi-step clicking (fill known values into a form, set filters, open a row/card/menu by name, reach a page via nav or site search) runs on Jev, one ~0.4 s typed decision per step instead of an LLM turn. Reading, extraction, screenshots, login and free text stay plain ego calls."
 license: MIT
 metadata:
-  version: "0.5.1"
+  version: "0.5.2"
 ---
 
 # ego-jev
@@ -13,15 +13,29 @@ elements (a11y refs `@N` + DOM-discovered clickables `dN`: `div` cards,
 `cursor:pointer`, iframe/shadow content) → one System One call picks the
 operation and its target together → ego clicks/fills/selects. Jev never writes
 text and never sees a screenshot by default; `screenshot: true` opts into the
-dreamer-ready image path below.
-
-Read `ego-browser` first for TaskSpace and Page rules; this skill only replaces
-the per-step "which element" judgment.
+image path in [Run](#run).
 
 Requires: [ego lite](https://lite.ego.app/) installed and onboarded (provides
 the `ego-browser` command, whose Node 24 runtime loads the `.ts` scripts
 directly — no build step), the `ego-browser` skill, and `TYPESAFE_API_KEY` or
 `AI_GATEWAY_API_KEY` resolvable in that runtime (see [backend and keys](reference.md#backend-and-keys)).
+
+## Start
+
+Before any browser work, run `ego-browser skill` and follow its output: the
+usage guide for the installed ego lite (scripts, TaskSpace, Page and cleanup
+rules), which this skill builds on without repeating. The `ego-browser` skill
+file only bootstraps this command; skip it. The guide ends with
+`[ego-browser:skill] end of guide`; without that line the output was
+truncated, so save it to a file and read the file in parts.
+
+Then branch on the task:
+
+- Several dependent clicks, fills or selects on a semantic page: [Run](#run).
+  A mixed task uses the loop for those stretches and plain ego calls around
+  them, in one TaskSpace.
+- Reading, extraction, screenshots, login, free text or a single action: plain
+  ego calls from the guide; Run does not apply.
 
 ## Task boundary
 
@@ -63,7 +77,7 @@ missing credentials. A mock decision does not verify the real Jev service.
    make no model request and do not poll or retry preflight. If the user has
    already explicitly refused configuration or selected the fallback, reuse
    that choice without asking again. For fallback, continue the same user
-   goal, URL/Page and supplied values with plain ego-browser; preserve any
+   goal, URL/Page and supplied values with plain ego calls; preserve any
    existing TaskSpace and its ownership. Do not switch to an author test page.
 
    When the user says a key already exists or is now configured, use its
@@ -82,7 +96,7 @@ missing credentials. A mock decision does not verify the real Jev service.
    named the options for this run without `record` (record stays off); reuse
    the answer for later loops in the same task. Details, redaction and limits:
    [`reference.md`](reference.md#record-opt-in).
-3. Create or resume the task's one TaskSpace following `ego-browser`; reuse
+3. Create or resume the task's one TaskSpace following the guide; reuse
    the user's starting Page or navigate to their URL (`goto` with
    `waitUntil: "domcontentloaded"` on slow sites). Preserve user ownership;
    stop when the user takes control. A backend failure is not a reason to
@@ -107,17 +121,10 @@ missing credentials. A mock decision does not verify the real Jev service.
    - `values`: Jev picks which key goes in which field by `hint`; a fill with
      no matching value escalates instead of inventing data. Site search needs
      a value too.
-   - `screenshot`: opt-in multimodal (Jev 1.14+, direct TypeSafe backend
-     only — the Vercel gateway does not pass images). Each step sends the
-     viewport PNG in `state` and asks a speculative Box locate question; when
-     Jev picks the synthetic `unlabeled` click target (canvas cells, map
-     pins, icon glyphs, image regions no ref/`dN` names), ego clicks the
-     returned point with `page.mouse`; when that point lands inside a
-     candidate's bounds, the click upgrades to the candidate's DOM locator.
-     An explicit click id moves only to a same-named element under the box.
-     A shaky click id (below `minTargetConfidence`) with a confident box
-     follows the box instead of escalating.
-     Images under 280×280 escalate.
+   - `screenshot`: opt-in multimodal for targets no ref or `dN` names (canvas
+     cells, map pins, icon glyphs, image regions). Jev 1.14+, direct TypeSafe
+     backend only — the Vercel gateway does not pass images. Click rules and
+     limits: [options](reference.md#options).
    - `debugDir`: absolute path. Writes `report.html`, a live, auto-refreshing
      view of each step: the screenshot with candidate, target and locate-box
      overlays next to every answer's probabilities. Give the user
@@ -170,7 +177,7 @@ module) or query the arrays directly. Recorded endpoints can be replayed with
 
 Done when the page state your goal describes is confirmed by `verify` or your
 own `page.evaluate` — Jev's `done` is a claim, the check is yours. Complete
-TaskSpace cleanup exactly once under `ego-browser`'s user ownership and
+TaskSpace cleanup exactly once under the guide's user ownership and
 `finish({ keep })` rules; an error or user handoff is not successful completion.
 
 ## Gotchas
