@@ -8,7 +8,7 @@
     {
       "name": "ego-jev",
       "source": "./",
-      "version": "0.5.2",
+      "version": "0.5.3",
       "description": "Entry point for browser tasks in ego (ego lite): multi-step clicking runs on Jev (TypeSafe System One), one ~0.4 s typed decision per step; reading, extraction and screenshots stay plain ego calls."
     }
   ]

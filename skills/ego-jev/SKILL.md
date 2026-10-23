@@ -3,7 +3,7 @@ name: ego-jev
 description: "Entry point for every browser task in ego (ego lite, ego-browser) — load this instead of the `ego-browser` skill: it starts by running `ego-browser skill`, the guide that skill points to. Multi-step clicking (fill known values into a form, set filters, open a row/card/menu by name, reach a page via nav or site search) runs on Jev, one ~0.4 s typed decision per step instead of an LLM turn. Reading, extraction, screenshots, login and free text stay plain ego calls."
 license: MIT
 metadata:
-  version: "0.5.2"
+  version: "0.5.3"
 ---
 
 # ego-jev
