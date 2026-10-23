@@ -532,20 +532,26 @@ function normalizeValues(values?: Record<string, ValueInput>): Values {
   );
 }
 
+// Startup files scanned for keys, relative to the runtime's HOME, in lookup
+// order. Bash files are read because the nodejs runtime inherits HOME but not
+// the calling shell's exports.
+const KEY_FILES = [
+  ".config/ego-jev/secrets.env",
+  ".zshenv",
+  ".zshrc",
+  ".bash_profile",
+  ".bashrc",
+];
+
 // Resolve in the runtime making the requests, whose environment can differ
 // from the calling shell. Key resolution order: opts.apiKey, process.env,
-// ~/.config/ego-jev/secrets.env, then `export NAME=value` lines in
-// ~/.zshenv / ~/.zshrc.
+// then `export NAME=value` lines in KEY_FILES.
 async function resolveKey(envNames: string[], opts: { apiKey?: string } = {}): Promise<string | null> {
   if (opts.apiKey !== undefined) return opts.apiKey.trim() || null;
   for (const n of envNames) if (process.env[n]?.trim()) return process.env[n]!.trim();
   const fs = await import("node:fs/promises");
   const home = process.env.HOME || "";
-  const files = [
-    `${home}/.config/ego-jev/secrets.env`,
-    `${home}/.zshenv`,
-    `${home}/.zshrc`,
-  ];
+  const files = KEY_FILES.map((file) => `${home}/${file}`);
   const texts = [];
   for (const file of files) {
     try { texts.push(await fs.readFile(file, "utf8")); } catch {}
@@ -565,14 +571,19 @@ async function resolveKey(envNames: string[], opts: { apiKey?: string } = {}): P
 
 class MissingCredentialError extends Error {
   readonly code = "JEV_MISSING_CREDENTIALS";
-  constructor(backend: Backend) {
+  constructor(backend: Backend, opts: { apiKey?: string } = {}) {
     const key = backend === "typesafe" ? "TYPESAFE_API_KEY" : "AI_GATEWAY_API_KEY";
-    super(
-      `${key} is not set for ${backend}${backend === "gateway" ? " (TYPESAFE_API_KEY fallback also unavailable)" : ""}. ` +
-      `Set export ${key}=<key> in ~/.config/ego-jev/secrets.env or the current runtime, ` +
-      `or pass apiKey with backend: "${backend}". ` +
-      "Re-run preflightJev in ego-browser nodejs; shell exports may not reach its runtime.",
-    );
+    const home = process.env.HOME || "unset";
+    const files = KEY_FILES.map((file) => `~/${file}`).join(", ");
+    const suffix = backend === "gateway" ? " (TYPESAFE_API_KEY fallback also unavailable)" : "";
+    const reason =
+      opts.apiKey !== undefined
+        ? `An explicit apiKey for ${backend} is blank${suffix}. Environment variables and files were not checked (HOME=${home}); ` +
+          `pass a non-empty apiKey, or omit it and set export ${key}=<key> in ${files} or the current runtime.`
+        : `${key} is not set for ${backend}${suffix}. Checked process.env, then export lines in ${files} (HOME=${home}); ` +
+          "shell exports may not reach the ego-browser nodejs runtime. " +
+          `Set export ${key}=<key> in one of those files or the current runtime, or pass apiKey with backend: "${backend}".`;
+    super(`${reason} Re-run preflightJev in ego-browser nodejs.`);
     this.name = "MissingCredentialError";
   }
 }
@@ -609,7 +620,7 @@ export const ASK_META = Symbol("ask-meta");
 // while a Box question rides along (docs.typesafe.ai/go/box).
 export async function askTypeSafe(state: JevState, questions: Questions, opts: BackendOptions = {}, assets?: AskAssets): Promise<Answers> {
   const apiKey = await resolveKey(["TYPESAFE_API_KEY"], opts);
-  if (!apiKey) throw new MissingCredentialError("typesafe");
+  if (!apiKey) throw new MissingCredentialError("typesafe", opts);
   const headers: Record<string, string> = { authorization: `Bearer ${apiKey}` };
   const hasBox = Object.values(questions).some((q) => q.type === "box");
   const model = opts.model ?? (hasBox ? "jev-preview" : "jev-latest");
@@ -661,7 +672,7 @@ export async function askGateway(state: JevState, questions: Questions, opts: Ba
   // when Vercel documents asset passthrough.
   const apiKey =
     await resolveKey(["AI_GATEWAY_API_KEY", "TYPESAFE_API_KEY"], opts);
-  if (!apiKey) throw new MissingCredentialError("gateway");
+  if (!apiKey) throw new MissingCredentialError("gateway", opts);
   const gwQuestions = Object.fromEntries(
     Object.entries(questions)
       .filter(([, q]) => q.type !== "box")
@@ -730,7 +741,7 @@ export function makeAsk(opts: BackendOptions = {}): Ask {
   const prepare = async () => {
     const ready = await (config ??= resolveBackend(opts));
     resolved = ready.backend;
-    if (!ready.apiKey) throw new MissingCredentialError(ready.backend);
+    if (!ready.apiKey) throw new MissingCredentialError(ready.backend, opts);
     return { backend: ready.backend, apiKey: ready.apiKey };
   };
   const ask: Ask = async (state, questions, assets) => {

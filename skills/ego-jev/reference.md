@@ -182,14 +182,18 @@ latency scales with payload, so `target_fill`/`target_select` heads list only
 role-compatible elements.
 
 Check configuration in the `ego-browser nodejs` runtime that will make the
-requests; its environment can differ from the calling shell. Key lookup
-order: `opts.apiKey` → `process.env` →
+requests; its environment can differ from the calling shell, and shell
+exports may not reach it. Key lookup order: `opts.apiKey` → `process.env` →
 `~/.config/ego-jev/secrets.env` → `export NAME=value` lines in `~/.zshenv` /
-`~/.zshrc` (paths use that runtime's `HOME`); variable-name priority beats
-file order. Files are parsed as simple assignments, not executed or sourced.
-An explicit blank `apiKey` fails instead of using an unrelated ambient key;
-blank environment values are skipped. Configure a key locally through a
-secure channel, never print it or ask for it in chat. OpenRouter does not host Jev.
+`~/.zshrc` → `~/.bash_profile` / `~/.bashrc` (paths use that runtime's
+`HOME`); variable-name priority beats file order, so a preferred name in any
+file wins over a fallback name in another. Files are parsed as simple
+assignments, not executed or sourced. An explicit blank `apiKey` fails
+instead of using an unrelated ambient key, and the error states that
+environment variables and files were not checked; blank environment values
+are skipped. The missing-key error lists every checked source and the
+runtime `HOME`. Configure a key locally through a secure channel, never
+print it or ask for it in chat. OpenRouter does not host Jev.
 
 ### Preflight
 

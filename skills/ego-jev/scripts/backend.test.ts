@@ -88,6 +88,28 @@ describe("credential failures in the real backend path", () => {
     expect(network).not.toHaveBeenCalled();
     for (const spy of spies) expect(spy).not.toHaveBeenCalled();
   });
+
+  it("a missing key names every checked source and the runtime HOME", async () => {
+    const ready = await preflightJev({ backend: "gateway" });
+    expect(ready.ok).toBe(false);
+    const reason = ready.ok ? "" : ready.reason;
+    for (const file of [".config/ego-jev/secrets.env", ".zshenv", ".zshrc", ".bash_profile", ".bashrc"]) {
+      expect(reason).toContain(`~/${file}`);
+    }
+    expect(reason).toContain(`HOME=${configHome}`);
+    expect(reason).toContain("shell exports may not reach");
+    expect(reason).toContain("preflightJev");
+  });
+
+  it("an explicit blank key says environment and files were unchecked, without leaking ambient values", async () => {
+    vi.stubEnv("TYPESAFE_API_KEY", "synthetic-secret-must-not-leak");
+    const ready = await preflightJev({ backend: "typesafe", apiKey: "  " });
+    expect(ready.ok).toBe(false);
+    const reason = ready.ok ? "" : ready.reason;
+    expect(reason).toMatch(/environment variables and files were not checked/i);
+    expect(reason).toContain(`HOME=${configHome}`);
+    expect(reason).not.toContain("synthetic-secret-must-not-leak");
+  });
 });
 
 describe("safe preflight before TaskSpace creation", () => {
@@ -277,6 +299,46 @@ describe("backend selection and credentials", () => {
     network.mockResolvedValue(directResponse());
     await makeAsk()(state, questions);
     expect(network.mock.calls[0][1]?.headers).toMatchObject({ authorization: "Bearer synthetic-env-priority" });
+  });
+
+  it.each([".bash_profile", ".bashrc"])("resolves a synthetic key from %s alone", async (file) => {
+    writeFileSync(join(configHome, file), 'export TYPESAFE_API_KEY="synthetic-bash-key"\n');
+    network.mockResolvedValue(directResponse());
+    const result = await runJevLoop(mockPage().page, { goal: "Search" });
+    expect(result.status).toBe("done");
+    expect(network.mock.calls[0][1]?.headers).toMatchObject({ authorization: "Bearer synthetic-bash-key" });
+  });
+
+  it("prefers the zsh file over the bash file for the same variable", async () => {
+    writeFileSync(join(configHome, ".zshrc"), "export TYPESAFE_API_KEY=synthetic-zsh\n");
+    writeFileSync(join(configHome, ".bashrc"), "export TYPESAFE_API_KEY=synthetic-bash\n");
+    network.mockResolvedValue(directResponse());
+    await makeAsk()(state, questions);
+    expect(network.mock.calls[0][1]?.headers).toMatchObject({ authorization: "Bearer synthetic-zsh" });
+  });
+
+  it("keeps key-name priority over a bash file", async () => {
+    mkdirSync(join(configHome, ".config/ego-jev"), { recursive: true });
+    writeFileSync(join(configHome, ".config/ego-jev/secrets.env"), "TYPESAFE_API_KEY=synthetic-fallback\n");
+    writeFileSync(join(configHome, ".bashrc"), "export AI_GATEWAY_API_KEY=synthetic-preferred\n");
+    network.mockResolvedValue(gatewayResponse());
+    await makeAsk({ backend: "gateway" })(state, questions);
+    expect(network.mock.calls[0][1]?.headers).toMatchObject({ authorization: "Bearer synthetic-preferred" });
+  });
+
+  it("an explicit apiKey overrides a bashrc key", async () => {
+    writeFileSync(join(configHome, ".bashrc"), "export TYPESAFE_API_KEY=synthetic-bash\n");
+    network.mockResolvedValue(directResponse());
+    await makeAsk({ apiKey: "synthetic-explicit" })(state, questions);
+    expect(network.mock.calls[0][1]?.headers).toMatchObject({ authorization: "Bearer synthetic-explicit" });
+  });
+
+  it("a blank environment value falls back to the bashrc key", async () => {
+    vi.stubEnv("TYPESAFE_API_KEY", "   ");
+    writeFileSync(join(configHome, ".bashrc"), "export TYPESAFE_API_KEY=synthetic-bash\n");
+    network.mockResolvedValue(directResponse());
+    await makeAsk()(state, questions);
+    expect(network.mock.calls[0][1]?.headers).toMatchObject({ authorization: "Bearer synthetic-bash" });
   });
 
   it("custom ask runs without a backend key or network", async () => {
